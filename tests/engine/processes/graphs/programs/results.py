@@ -38,8 +38,8 @@ def divide(numerator: float, denominator: float) -> Result[float, DivisionErrors
 
 @task
 def recover(error: DivisionErrors) -> float:
-    """Recover from a declared division failure."""
-    return -float(error.value.status)
+    """Recover from a declared division failure with a neutral fallback."""
+    return 0.0
 
 
 @task

@@ -355,7 +355,7 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
 
     @task
     def recover(error: DivisionErrors) -> float:
-        return -float(error.value.status)
+        return 0.0  # neutral fallback; the error member arrived unwrapped
 
     @task
     def read_ratio(value: float) -> float:

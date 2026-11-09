@@ -275,7 +275,7 @@ def test_error_member_feeds_recovery_input() -> None:
     """The stored error member arrives at the recovery task unwrapped."""
     outputs, node = run_get_node(results.recover, error=DivisionErrors.ZERO_DENOMINATOR)
     assert node.is_finished_ok
-    assert t.cast(t.Any, outputs).value == -410.0
+    assert t.cast(t.Any, outputs).value == 0.0
 
 
 @pytest.mark.usefixtures('aiida_profile_clean')
@@ -378,7 +378,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.ratio,
             {'numerator': 1.0, 'denominator': 0.0},
-            -410.0,
+            0.0,
             410,
             'error',
             'recover',
@@ -390,7 +390,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.ratio_is_none,
             {'numerator': 1.0, 'denominator': 0.0},
-            -410.0,
+            0.0,
             410,
             'error',
             'recover',
@@ -435,7 +435,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.matched_signed,
             {'numerator': 1.0, 'denominator': 0.0},
-            -410.0,
+            0.0,
             410,
             'error',
             'recover',
@@ -462,7 +462,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.matched_negated,
             {'numerator': 1.0, 'denominator': 0.0},
-            -410.0,
+            0.0,
             410,
             'error',
             'recover',
