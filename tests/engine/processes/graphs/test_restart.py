@@ -12,7 +12,7 @@ import pytest
 
 from aiida.common.links import LinkType
 from aiida.engine.launch import run_get_node
-from aiida.engine.processes.graphs.restart import RestartErrors
+from aiida.engine.processes.graphs.results import RestartErrors
 from aiida.orm import StructureData
 from tests.engine.processes.graphs.programs import restart
 from tests.engine.processes.graphs.programs.restart import StepErrors

@@ -117,6 +117,7 @@ def _error_codes(errors: type[ExitCodeEnum] | UnionType) -> tuple[dict[str, Exit
     qualify their labels and duplicate statuses fail here, not at runtime.
     """
     probe = Result[t.Any, errors]  # type: ignore[valid-type]
+    # `errors` arrives as a runtime value, not a static annotation, so the subscription needs no checking.
     _, codes = _result_contract(probe)
     kinds = _error_types(probe)
     return codes, tuple(get_object_loader().identify_object(kind) for kind in kinds)

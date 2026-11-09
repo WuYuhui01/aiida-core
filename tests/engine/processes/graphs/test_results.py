@@ -20,8 +20,7 @@ from aiida.common.loaders import get_object_loader
 from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, Result, task
 from aiida.engine.launch import run_get_node
 from aiida.engine.processes.graphs.ir import BranchControl, GraphIR, ProcessTask, TaskIR
-from aiida.engine.processes.graphs.restart import RestartErrors
-from aiida.engine.processes.graphs.results import _error_types, _result_contract
+from aiida.engine.processes.graphs.results import RestartErrors, _error_types, _result_contract
 from aiida.orm import SinglefileData
 from tests.engine.processes.graphs.programs import results, shelljobs
 from tests.engine.processes.graphs.programs.results import DivisionErrors, InputErrors

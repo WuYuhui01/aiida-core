@@ -16,8 +16,7 @@ only ever read, never rebound, so nothing is lost on decline.
 
 from aiida.engine.processes.exit_code import ExitCode, ExitCodeEnum
 from aiida.engine.processes.graphs.lowering import graph, task
-from aiida.engine.processes.graphs.restart import RestartErrors
-from aiida.engine.processes.graphs.results import Err, Ok, Result
+from aiida.engine.processes.graphs.results import Err, Ok, RestartErrors, Result
 
 
 class MockWorkflowErrors(ExitCodeEnum):
