@@ -355,7 +355,7 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
 
     @task
     def recover(error: DivisionErrors) -> float:
-        return 0.0  # neutral fallback; the error member arrived unwrapped
+        return 0.0  # neutral fallback
 
     @task
     def read_ratio(value: float) -> float:
@@ -372,7 +372,8 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
 
 The call unpacks into ``(value, error)``; exactly one arm is present.
 Only the present arm creates data nodes; the absent arm reaches downstream inputs as ``None``.
-Error inputs take the enum member, so the task reads ``error.value.status`` directly.
+Error inputs arrive as the enum member itself, typed by the annotation, so handlers
+match on members directly instead of reading storage nodes.
 Branches test the arms with ``is None`` and ``is not None``, or match one declared
 member with ``is`` and ``is not``, such as ``if error is DivisionErrors.ZERO_DENOMINATOR``.
 An unknown compared name fails when the graph is built.
