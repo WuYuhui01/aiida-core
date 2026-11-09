@@ -21,7 +21,7 @@ from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, Result, task
 from aiida.engine.launch import run_get_node
 from aiida.engine.processes.graphs.ir import BranchControl, GraphIR, ProcessTask, TaskIR
 from aiida.engine.processes.graphs.restart import RestartErrors
-from aiida.engine.processes.graphs.results import error_types, result_contract
+from aiida.engine.processes.graphs.results import _error_types, _result_contract
 from aiida.orm import SinglefileData
 from tests.engine.processes.graphs.programs import results, shelljobs
 from tests.engine.processes.graphs.programs.results import DivisionErrors, InputErrors
@@ -41,16 +41,16 @@ pytestmark = pytest.mark.presto
         ),
     ],
 )
-def test_result_contract_supported(annotation: t.Any, success: t.Any, labels: set[str]) -> None:
+def test_contract_supported(annotation: t.Any, success: t.Any, labels: set[str]) -> None:
     """A `Result` annotation declares its success type and its exit codes."""
-    resolved, codes = result_contract(annotation)
+    resolved, codes = _result_contract(annotation)
     assert resolved is success
     assert set(codes) == labels
 
 
 def test_result_union_qualifies_shared_member_names() -> None:
     """Union alternatives keep their enum name, so shared member names stay distinct."""
-    assert error_types(Result[float, DivisionErrors | InputErrors]) == (DivisionErrors, InputErrors)
+    assert _error_types(Result[float, DivisionErrors | InputErrors]) == (DivisionErrors, InputErrors)
 
 
 class DuplicateFirst(ExitCodeEnum):
@@ -83,15 +83,15 @@ _BAD_CACHE: t.Any = {'invalidates_cache': 'yes'}
         pytest.param(Result[float, DuplicateFirst | DuplicateSecond], 'duplicate exit status', id='shared-status'),
     ],
 )
-def test_result_contract_rejected(annotation: t.Any, match: str) -> None:
+def test_contract_rejected(annotation: t.Any, match: str) -> None:
     """Error types outside non-empty `ExitCodeEnum` alternatives fail the contract."""
     with pytest.raises(GraphTypeCheckError, match=match):
-        result_contract(annotation)
+        _result_contract(annotation)
 
 
 def test_restart_errors_contract() -> None:
     """The shared machinery vocabulary declares the `BaseRestartWorkChain` statuses."""
-    success, codes = result_contract(Result[float, RestartErrors])
+    success, codes = _result_contract(Result[float, RestartErrors])
     assert success is float
     assert set(codes) == {
         'SUB_PROCESS_EXCEPTED',
@@ -104,7 +104,7 @@ def test_restart_errors_contract() -> None:
 
 def test_plain_annotation_has_no_contract() -> None:
     """A task without `Result` declares no failures."""
-    assert result_contract(float) == (float, {})
+    assert _result_contract(float) == (float, {})
 
 
 def test_calcjob_task_declares_error_mapping() -> None:
@@ -314,7 +314,7 @@ def test_legacy_exit_code_preserved() -> None:
         ),
     ],
 )
-def test_result_contract_in_ir(declaration: t.Any, handle: t.Any, labels: set[str]) -> None:
+def test_contract_in_ir(declaration: t.Any, handle: t.Any, labels: set[str]) -> None:
     """The declared exit codes and the presence test survive an IR round trip."""
     spec = declaration.build()
     placed = next(entry for entry in spec.tasks if isinstance(entry, ProcessTask))

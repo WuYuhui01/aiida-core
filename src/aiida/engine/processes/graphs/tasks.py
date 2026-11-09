@@ -27,7 +27,7 @@ from aiida.engine.processes.exit_code import ExitCode, ExitCodeEnum
 from aiida.engine.processes.functions import FunctionProcessBase, P, ProcessFunctionType, process_function
 from aiida.engine.processes.generic.ports import UNSPECIFIED
 from aiida.engine.processes.graphs.ir import TaskIR, TypevarPositions, _reject_dynamic_inputs
-from aiida.engine.processes.graphs.results import Err, Ok, Result, error_types, result_contract
+from aiida.engine.processes.graphs.results import Err, Ok, Result, _error_types, _result_contract
 from aiida.engine.processes.graphs.shapes import (
     LeafShape,
     NamespaceShape,
@@ -117,8 +117,8 @@ def _error_codes(errors: type[ExitCodeEnum] | UnionType) -> tuple[dict[str, Exit
     qualify their labels and duplicate statuses fail here, not at runtime.
     """
     probe = Result[t.Any, errors]  # type: ignore[valid-type]
-    _, codes = result_contract(probe)
-    kinds = error_types(probe)
+    _, codes = _result_contract(probe)
+    kinds = _error_types(probe)
     return codes, tuple(get_object_loader().identify_object(kind) for kind in kinds)
 
 
@@ -196,7 +196,7 @@ class TaskProcess(FunctionProcessBase):
     @override
     def _declare_outputs(cls, spec: ProcessSpec, annotations: dict[str, t.Any]) -> None:
         returned = annotations.get('return')
-        annotation, codes = result_contract(returned)
+        annotation, codes = _result_contract(returned)
         for label, code in codes.items():
             if label in spec.exit_codes or any(existing.status == code.status for existing in spec.exit_codes.values()):
                 msg = f'task exit code `{label}` ({code.status}) conflicts with an engine exit code.'
@@ -219,7 +219,7 @@ class TaskProcess(FunctionProcessBase):
     @override
     def _prepare_result(self, result: t.Any) -> t.Any:
         annotation = t.get_type_hints(self._func, include_extras=True).get('return')
-        _, codes = result_contract(annotation)
+        _, codes = _result_contract(annotation)
         if t.get_origin(annotation) is not Result:
             if isinstance(result, Result):
                 msg = 'task exit codes must be declared in a Result return annotation.'
@@ -238,7 +238,7 @@ class TaskProcess(FunctionProcessBase):
         if isinstance(result, Err):
             error = result.error
             if isinstance(error, ExitCodeEnum):
-                if not isinstance(error, error_types(annotation)):
+                if not isinstance(error, _error_types(annotation)):
                     msg = f'task returned an error from an undeclared enum: {error!r}.'
                     raise GraphValidationError(msg)
                 error = error.value
@@ -247,7 +247,10 @@ class TaskProcess(FunctionProcessBase):
                 for code in codes.values()
             ):
                 member = next(
-                    member for kind in error_types(annotation) for member in kind if member.value.status == error.status
+                    member
+                    for kind in _error_types(annotation)
+                    for member in kind
+                    if member.value.status == error.status
                 )
                 self.out('error', to_aiida_type(member))
                 return error
@@ -546,7 +549,7 @@ def _check_task_contract(
         raise GraphTypeCheckError(msg)
     hints = t.get_type_hints(function, include_extras=True)
     returned = hints.get('return', inspect.Signature.empty)
-    annotation, _ = result_contract(returned)
+    annotation, _ = _result_contract(returned)
     if _is_structured(annotation):
         msg = 'task output namespaces are not supported; declare leaf outputs instead.'
         raise GraphTypeCheckError(msg)
@@ -584,7 +587,7 @@ def _build_task(
     assert not inspect.isclass(function)
     decorated = process_function(node_class=CalcFunctionNode, base_class=TaskProcess)(function)
     typevar_inputs, typevar_output = _typevar_positions(function)
-    _, exit_codes = result_contract(t.get_type_hints(function, include_extras=True).get('return'))
+    _, exit_codes = _result_contract(t.get_type_hints(function, include_extras=True).get('return'))
     handle = FunctionTaskHandle(
         decorated, typevar_inputs=typevar_inputs, typevar_output=typevar_output, exit_codes=exit_codes
     )

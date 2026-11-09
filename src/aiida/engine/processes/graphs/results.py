@@ -46,7 +46,7 @@ class Err(Result[T, E]):
     error: E
 
 
-def result_contract(annotation: object) -> tuple[object, dict[str, ExitCode]]:
+def _result_contract(annotation: object) -> tuple[object, dict[str, ExitCode]]:
     """Separate successful outputs from the failures declared by a `Result` annotation."""
     if t.get_origin(annotation) is not Result:
         if annotation is Result:
@@ -54,25 +54,29 @@ def result_contract(annotation: object) -> tuple[object, dict[str, ExitCode]]:
             raise GraphTypeCheckError(msg)
         return annotation, {}
     success, _ = t.get_args(annotation)
-    errors = error_types(annotation)
+    errors = _error_types(annotation)
     codes: dict[str, ExitCode] = {}
     statuses: set[int] = set()
     for kind in errors:
         for name, member in kind.__members__.items():
             label = f'{kind.__name__}_{name}' if len(errors) > 1 else name
-            code = member.value
-            if code.status in statuses or label in codes:
-                msg = f'Result error `{label}` has duplicate exit status {code.status} or label.'
-                raise GraphTypeCheckError(msg)
-            statuses.add(code.status)
-            codes[label] = code
+            _register_error_code(codes, statuses, label, member.value)
     if t.get_origin(success) is Result or success is Result:
         msg = 'nested Result task outputs are not supported.'
         raise GraphTypeCheckError(msg)
     return success, codes
 
 
-def error_types(annotation: object) -> tuple[type[ExitCodeEnum], ...]:
+def _register_error_code(codes: dict[str, ExitCode], statuses: set[int], label: str, code: ExitCode) -> None:
+    """Register one error code, rejecting duplicate statuses and labels."""
+    if code.status in statuses or label in codes:
+        msg = f'Result error `{label}` has duplicate exit status {code.status} or label.'
+        raise GraphTypeCheckError(msg)
+    statuses.add(code.status)
+    codes[label] = code
+
+
+def _error_types(annotation: object) -> tuple[type[ExitCodeEnum], ...]:
     """Extract the enum alternatives from a `Result` error annotation."""
     errors = t.get_args(annotation)[1]
     kinds = t.get_args(errors) if t.get_origin(errors) in (t.Union, UnionType) else (errors,)
