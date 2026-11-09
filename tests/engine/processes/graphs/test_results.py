@@ -337,8 +337,6 @@ def test_contract_in_ir(declaration: t.Any, handle: t.Any, labels: set[str]) -> 
 )
 def test_matched_condition_in_ir(declaration: t.Any, test: str) -> None:
     """A member test stores its enum identifier and member name through a round trip."""
-    from aiida.common.loaders import get_object_loader
-
     spec = declaration.build()
     branch = next(entry for entry in spec.tasks if isinstance(entry, BranchControl))
     assert isinstance(branch, BranchControl)
@@ -501,7 +499,6 @@ def test_declared_failure_branches(
     """A declared failure branches to recovery with exit zero; a success reads the value arm."""
     outputs, node = run_get_node(declaration, **inputs)
     assert node.is_finished_ok
-    assert node.exit_status == 0
     assert outputs['result'].value == expected
     calls = node.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()
     assert len(calls) == 1

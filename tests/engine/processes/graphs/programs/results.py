@@ -67,25 +67,25 @@ def union_fallback(error: DivisionErrors | InputErrors) -> float:
 @task
 def stray_ok(value: int) -> int:
     """Return `Ok` without a `Result` annotation."""
-    return Ok(value)  # type: ignore[return-value]
+    return Ok(value)  # type: ignore[return-value] - misuse: Ok without Result
 
 
 @task
 def legacy_exit(value: int) -> int:
     """Return a bare `ExitCode`, preserved from before `Result` existed."""
-    return ExitCode(500, 'Legacy failure.')  # type: ignore[return-value]
+    return ExitCode(500, 'Legacy failure.')  # type: ignore[return-value] - legacy: bare ExitCode
 
 
 @task
 def undeclared_error(value: int) -> Result[int, DivisionErrors]:
     """Return an exit code outside the declared enum."""
-    return Err(ExitCode(999, 'Not declared'))  # type: ignore[arg-type]
+    return Err(ExitCode(999, 'Not declared'))  # type: ignore[arg-type] - misuse: code outside the enum
 
 
 @task
 def missing_result_wrapper(value: int) -> Result[int, DivisionErrors]:
     """Return bare outputs where a `Result` wrapper is required."""
-    return value  # type: ignore[return-value]
+    return value  # type: ignore[return-value] - misuse: bare Result return
 
 
 @graph
@@ -199,7 +199,7 @@ class NamedPair(t.TypedDict):
 
 def bare_result(value: int) -> Result:
     """Reject an unparameterized `Result` at decoration."""
-    return value  # type: ignore[return-value]
+    return value  # type: ignore[return-value] - misuse: bare Result
 
 
 def nested_result(value: int) -> Result[Result[int, DivisionErrors], DivisionErrors]:

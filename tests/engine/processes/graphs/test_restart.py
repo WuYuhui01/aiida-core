@@ -31,7 +31,6 @@ def test_restartable_recovers_within_attempts(structure: StructureData) -> None:
     """Two declared failures retry, the third attempt succeeds, the graph exits zero."""
     outputs, node = run_get_node(restart.restartable, structure=structure, max_attempts=5)
     assert node.is_finished_ok
-    assert node.exit_status == 0
     assert outputs['result'].value == 1.5
     iterations = node.base.links.get_outgoing(link_type=LinkType.CALL_WORK).nested()
     assert len(iterations) == 2

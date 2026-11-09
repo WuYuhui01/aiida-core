@@ -60,5 +60,4 @@ def test_chain_recovers_in_order() -> None:
     """Walltime then diagonalization each claim their code; the third attempt succeeds."""
     outputs, node = run_get_node(retry_chain.chained_retry, parameters={}, max_attempts=5)
     assert node.is_finished_ok
-    assert node.exit_status == 0
     assert outputs['result'].value == 1.0
