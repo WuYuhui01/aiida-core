@@ -27,7 +27,7 @@ class Result(t.Generic[T, E]):
     """A task result annotated with its success type and its error enums.
 
     Return `Ok` for successful outputs or `Err` for a declared failure. Graph calls unpack
-    into ``(value, error)``, with the absent arm reaching downstream inputs as `None`.
+    into (`value`, `error`), with the absent arm reaching downstream inputs as `None`.
     Error enums must have unique, positive exit codes.
     """
 
@@ -43,7 +43,7 @@ class Ok(Result[T, E]):
 class Err(Result[T, E]):
     """A declared error enum member, or its optionally formatted exit code."""
 
-    error: E
+    error: E | ExitCode
 
 
 class RestartErrors(ExitCodeEnum):
@@ -63,6 +63,9 @@ def _result_contract(annotation: object) -> tuple[object, dict[str, ExitCode]]:
             raise GraphTypeCheckError(msg)
         return annotation, {}
     success, _ = t.get_args(annotation)
+    if t.get_origin(success) is Result or success is Result:
+        msg = 'nested Result task outputs are not supported.'
+        raise GraphTypeCheckError(msg)
     errors = _error_types(annotation)
     codes: dict[str, ExitCode] = {}
     statuses: set[int] = set()
@@ -70,9 +73,6 @@ def _result_contract(annotation: object) -> tuple[object, dict[str, ExitCode]]:
         for name, member in kind.__members__.items():
             label = f'{kind.__name__}_{name}' if len(errors) > 1 else name
             _register_error_code(codes, statuses, label, member.value)
-    if t.get_origin(success) is Result or success is Result:
-        msg = 'nested Result task outputs are not supported.'
-        raise GraphTypeCheckError(msg)
     return success, codes
 
 

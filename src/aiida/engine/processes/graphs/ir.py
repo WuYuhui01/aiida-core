@@ -228,6 +228,7 @@ class TaskIR:
     version: str = _TASK_IR_VERSION
 
     def __post_init__(self) -> None:
+        """Normalize containers so copies compare equal on this frozen dataclass."""
         object.__setattr__(self, 'exit_codes', dict(self.exit_codes))
         object.__setattr__(self, 'error_enums', tuple(self.error_enums))
 
@@ -307,13 +308,7 @@ class TaskIR:
             )
             raise GraphTypeCheckError(msg)
         if self.exit_codes and 'error' not in ports:
-            from aiida.orm import EnumData
-
-            fresh = PortNamespace(ports.name, help=ports.help, required=ports.required)
-            for name, child in ports.items():
-                fresh[name] = child
-            fresh['error'] = OutputPort('error', valid_type=EnumData, required=False)
-            ports = fresh
+            ports = _with_error_arm(ports)
         return ports
 
     def check_ports(self) -> None:
@@ -364,6 +359,29 @@ class TaskIR:
             error_enums=tuple(data.get('error_enums', ())),
             version=_require_version(data.get('version'), _TASK_IR_VERSION, 'task'),
         )
+
+
+def _with_error_arm(ports: PortNamespace) -> PortNamespace:
+    """Return a copy of ``ports`` with a synthetic `error` arm for declared failures."""
+    from aiida.orm import EnumData
+
+    fresh = PortNamespace(ports.name, help=ports.help, required=ports.required)
+    for name, child in ports.items():
+        fresh[name] = child
+    fresh['error'] = OutputPort('error', valid_type=EnumData, required=False)
+    return fresh
+
+
+def _branch_condition(
+    data: Mapping[str, t.Any],
+) -> tuple[t.Literal['truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'], tuple[str, str] | None]:
+    """Return the stored branch condition, defaulting to the pre-test truthiness check."""
+    stored_member = data.get('condition_member')
+    member = tuple(stored_member) if stored_member is not None else None
+    if member is not None and len(member) != 2:
+        msg = 'a branch `condition_member` names an enum identifier and member name pair.'
+        raise GraphTypeCheckError(msg)
+    return data.get('condition_test', 'truthy'), t.cast('tuple[str, str] | None', member)
 
 
 def _load_declared(data: Mapping[str, t.Any] | None) -> NamespaceShape:
@@ -497,13 +515,13 @@ class GraphTask(abc.ABC):
                 if body is None:
                     msg = 'malformed graph task declaration; missing body.'
                     raise GraphTypeCheckError(msg)
-                stored_member = data.get('condition_member')
+                condition_test, condition_member = _branch_condition(data)
                 return BranchControl(
                     body=body,
                     otherwise=GraphIR.from_dict(data['otherwise']),
                     condition_port=data.get('condition_port', _CONDITION_PORT),
-                    condition_test=data.get('condition_test', 'truthy'),
-                    condition_member=tuple(stored_member) if stored_member is not None else None,
+                    condition_test=condition_test,
+                    condition_member=condition_member,
                     **common,
                 )
             if kind == 'loop':
@@ -580,7 +598,7 @@ class BranchControl(BodyTask):
     condition_member: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
-        """Reject stored declarations with an unknown condition test."""
+        """Reject unknown condition tests and member tests without exactly one error member."""
         if self.condition_test not in ('truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'):
             msg = f'unsupported branch condition test `{self.condition_test}`.'
             raise GraphTypeCheckError(msg)

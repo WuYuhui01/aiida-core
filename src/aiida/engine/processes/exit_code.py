@@ -8,6 +8,8 @@
 ###########################################################################
 """A namedtuple and namespace for ExitCodes that can be used to exit from Processes."""
 
+from __future__ import annotations
+
 import enum
 import typing as t
 
@@ -32,7 +34,7 @@ class ExitCode(t.NamedTuple):
     message: str | None = None
     invalidates_cache: bool = False
 
-    def format(self, **kwargs: str) -> 'ExitCode':
+    def format(self, **kwargs: str) -> ExitCode:
         """Create a clone of this exit code where the template message is replaced by the keyword arguments.
 
         :param kwargs: replacement parameters for the template message
@@ -60,14 +62,14 @@ class ExitCodeEnum(enum.Enum):
     Invalid values fail when the enum class is defined, not when a task using it is registered.
     """
 
-    def __new__(cls, *args: object) -> 'ExitCodeEnum':
+    def __new__(cls, *args: object) -> ExitCodeEnum:
         """Validate one member value at class-creation time."""
         # `Enum` unpacks tuple values into `__new__`, so an `ExitCode` arrives as three arguments.
         code: object = ExitCode(*t.cast(t.Any, args)) if len(args) != 1 else args[0]
         if not isinstance(code, ExitCode):
             msg = f'`{cls.__name__}` members must be `ExitCode` values, got `{code!r}`.'
             raise TypeError(msg)
-        status, message, invalidates_cache = t.cast('tuple[object, object, object]', tuple(code))
+        status, message, invalidates_cache = t.cast(tuple[object, object, object], tuple(code))
         if isinstance(status, bool) or not isinstance(status, int) or status <= 0:
             msg = f'`{cls.__name__}` members must declare a positive exit status, got `{status!r}`.'
             raise ValueError(msg)
@@ -82,7 +84,7 @@ class ExitCodeEnum(enum.Enum):
         return obj
 
     @property
-    def exit_code(self) -> 'ExitCode':
+    def exit_code(self) -> ExitCode:
         """Return the `ExitCode` declared by this member."""
         return self.value
 
@@ -114,11 +116,13 @@ class ExitCodesNamespace(AttributeDict):
                 if exit_code.status == identifier:
                     return exit_code
 
-            raise ValueError('the exit code status {} does not correspond to a valid exit code')
+            msg = f'the exit code status {identifier} does not correspond to a valid exit code'
+            raise ValueError(msg)
         else:
             try:
                 exit_code = self[identifier]
             except KeyError:
-                raise ValueError('the exit code label {} does not correspond to a valid exit code')
+                msg = f'the exit code label {identifier} does not correspond to a valid exit code'
+                raise ValueError(msg)
             else:
                 return exit_code

@@ -83,6 +83,41 @@ def _returned(node: Node) -> dict[str, t.Any]:
     return {entry.link_label: entry.node for entry in node.base.links.get_outgoing(link_type=LinkType.RETURN).all()}
 
 
+def _holds_member(task: BranchControl, condition: t.Any) -> bool:
+    """Return whether a condition equals the member a branch test names."""
+    assert task.condition_member is not None
+    identifier, name = task.condition_member
+    expected = get_object_loader().load_object(identifier).__members__[name]
+    actual = from_aiida_type(condition) if isinstance(condition, EnumData) else condition
+    return actual == expected
+
+
+def _error_member(task: ProcessTask, node: Node) -> t.Any:
+    """Return the declared member matching a failed process task's exit status."""
+    for identifier in task.spec.error_enums:
+        kind = get_object_loader().load_object(identifier)
+        for member in kind:
+            if member.value.status == node.exit_status:
+                return to_aiida_type(member)
+    msg = f'task `{task.name}` failed with an unmapped exit status {node.exit_status}.'
+    raise GraphRuntimeError(msg)
+
+
+def _value_at(value: t.Any, ports: PortNamespace, path: str) -> t.Any:
+    """Resolve a path, returning `None` for absent optional leaves or namespace arms."""
+    for segment in path.split('.') if path else ():
+        port = ports[segment]
+        try:
+            value = value[segment]
+        except KeyError:
+            if not port.required:
+                return None
+            raise
+        if isinstance(port, PortNamespace):
+            ports = port
+    return value
+
+
 @dataclass(frozen=True)
 class _Start:
     """A run to dispatch under an explicit provenance call-link name."""
@@ -290,7 +325,8 @@ class GraphRun:
         elif task.condition_test == 'is_not_none':
             selected = condition is not None
         elif task.condition_test in ('is_member', 'is_not_member'):
-            selected = self._holds_member(task, condition, task.condition_test == 'is_member')
+            matched = _holds_member(task, condition)
+            selected = matched if task.condition_test == 'is_member' else not matched
         else:
             selected = _holds(condition)
         taken = task.body if selected else task.otherwise
@@ -379,45 +415,8 @@ class GraphRun:
         # Only declared outputs travel; the process may attach more.
         values = {key: outputs[key] for key in ports if key in outputs}
         if isinstance(task, ProcessTask) and task.spec.error_enums and 'error' not in values and node.is_failed:
-            # Process tasks declare no error output, so a mapped failure
-            # synthesizes its member from the child exit status instead.
-            values['error'] = self._error_member(task, node)
-        return self._value_at(values, ports, path)
-
-    @staticmethod
-    def _holds_member(task: BranchControl, condition: t.Any, expected_when: bool) -> bool:
-        """Return whether a condition matches the member a branch test names."""
-        assert task.condition_member is not None
-        identifier, name = task.condition_member
-        expected = get_object_loader().load_object(identifier).__members__[name]
-        actual = from_aiida_type(condition) if isinstance(condition, EnumData) else condition
-        return (actual == expected) is expected_when
-
-    @staticmethod
-    def _error_member(task: ProcessTask, node: Node) -> t.Any:
-        """Return the declared member matching a failed process task's exit status."""
-        for identifier in task.spec.error_enums:
-            kind = get_object_loader().load_object(identifier)
-            for member in kind:
-                if member.value.status == node.exit_status:
-                    return to_aiida_type(member)
-        msg = f'task `{task.name}` failed with an unmapped exit status {node.exit_status}.'
-        raise GraphRuntimeError(msg)
-
-    @staticmethod
-    def _value_at(value: t.Any, ports: PortNamespace, path: str) -> t.Any:
-        """Resolve a path, returning `None` for absent optional leaves or namespace arms."""
-        for segment in path.split('.') if path else ():
-            port = ports[segment]
-            try:
-                value = value[segment]
-            except KeyError:
-                if not port.required:
-                    return None
-                raise
-            if isinstance(port, PortNamespace):
-                ports = port
-        return value
+            values['error'] = _error_member(task, node)
+        return _value_at(values, ports, path)
 
     def _produced_by(self, name: str) -> Node:
         """Return the node produced by the latest instance of one task."""

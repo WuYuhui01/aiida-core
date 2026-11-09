@@ -110,19 +110,6 @@ def _declared_shape(declaration: PortDeclaration | None, *, leaves: bool = False
     return NamespaceShape(fields=tuple(fields))
 
 
-def _error_codes(errors: type[ExitCodeEnum] | UnionType) -> tuple[dict[str, ExitCode], tuple[str, ...]]:
-    """Validate a task-level error declaration and return its codes and enum identifiers.
-
-    The declaration mirrors the error half of a `Result` annotation, so unions
-    qualify their labels and duplicate statuses fail here, not at runtime.
-    """
-    probe = Result[t.Any, errors]  # type: ignore[valid-type]
-    # `errors` arrives as a runtime value, not a static annotation, so the subscription needs no checking.
-    _, codes = _result_contract(probe)
-    kinds = _error_types(probe)
-    return codes, tuple(get_object_loader().identify_object(kind) for kind in kinds)
-
-
 def _declare_output_ports(return_annotation: t.Any, spec: ProcessSpec) -> None:
     """Declare static leaf output ports from the return annotation.
 
@@ -227,37 +214,41 @@ class TaskProcess(FunctionProcessBase):
                 raise GraphValidationError(msg)
             return super()._prepare_result(result)
         if isinstance(result, Ok):
-            if isinstance(result.value, (ExitCode, Result)):
-                msg = 'Ok must contain task outputs, not an exit code or another Result.'
-                raise GraphValidationError(msg)
-            success = t.get_args(annotation)[0]
-            if result.value is None and success is not type(None) and type(None) not in t.get_args(success):
-                msg = 'the successful Result type does not allow None.'
-                raise GraphValidationError(msg)
-            self.out('value', result.value if isinstance(result.value, Data) else to_aiida_type(result.value))
-            return ExitCode()
+            return self._prepare_ok(result, annotation)
         if isinstance(result, Err):
-            error = result.error
-            if isinstance(error, ExitCodeEnum):
-                if not isinstance(error, _error_types(annotation)):
-                    msg = f'task returned an error from an undeclared enum: {error!r}.'
-                    raise GraphValidationError(msg)
-                error = error.value
-            if isinstance(error, ExitCode) and any(
-                error.status == code.status and error.invalidates_cache == code.invalidates_cache
-                for code in codes.values()
-            ):
-                member = next(
-                    member
-                    for kind in _error_types(annotation)
-                    for member in kind
-                    if member.value.status == error.status
-                )
-                self.out('error', to_aiida_type(member))
-                return error
-            msg = f'task returned an undeclared exit code: {error!r}.'
-            raise GraphValidationError(msg)
+            return self._prepare_error(result, annotation, codes)
         msg = 'a task annotated with Result must return `Ok` outputs or `Err` error.'
+        raise GraphValidationError(msg)
+
+    def _prepare_ok(self, result: Ok[t.Any, t.Any], annotation: t.Any) -> ExitCode:
+        """Store successful outputs and exit cleanly."""
+        if isinstance(result.value, (ExitCode, Result)):
+            msg = 'Ok must contain task outputs, not an exit code or another Result.'
+            raise GraphValidationError(msg)
+        success = t.get_args(annotation)[0]
+        if result.value is None and success is not type(None) and type(None) not in t.get_args(success):
+            msg = 'the successful Result type does not allow None.'
+            raise GraphValidationError(msg)
+        self.out('value', result.value if isinstance(result.value, Data) else to_aiida_type(result.value))
+        return ExitCode()
+
+    def _prepare_error(self, result: Err[t.Any, t.Any], annotation: t.Any, codes: Mapping[str, ExitCode]) -> ExitCode:
+        """Store the declared error member and exit with its code."""
+        error = result.error
+        if isinstance(error, ExitCodeEnum):
+            if not isinstance(error, _error_types(annotation)):
+                msg = f'task returned an error from an undeclared enum: {error!r}.'
+                raise GraphValidationError(msg)
+            error = error.value
+        if isinstance(error, ExitCode) and any(
+            error.status == code.status and error.invalidates_cache == code.invalidates_cache for code in codes.values()
+        ):
+            member = next(
+                member for kind in _error_types(annotation) for member in kind if member.value.status == error.status
+            )
+            self.out('error', to_aiida_type(member))
+            return error
+        msg = f'task returned an undeclared exit code: {error!r}.'
         raise GraphValidationError(msg)
 
     @override
@@ -509,16 +500,28 @@ def _merge_task_metadata(
     return {**inputs, 'metadata': dict(metadata)}
 
 
+def _error_codes(errors: type[ExitCodeEnum] | UnionType) -> tuple[dict[str, ExitCode], tuple[str, ...]]:
+    """Validate a task-level error declaration and return its codes and enum identifiers.
+
+    The declaration mirrors the error half of a `Result` annotation, so unions
+    qualify their labels and duplicate statuses fail here, not at runtime.
+    """
+    probe = Result[t.Any, errors]  # type: ignore[valid-type]
+    # `errors` arrives as a runtime value, not a static annotation, so the subscription needs no checking.
+    _, codes = _result_contract(probe)
+    kinds = _error_types(probe)
+    return codes, tuple(get_object_loader().identify_object(kind) for kind in kinds)
+
+
 def _check_task_contract(
     function: type[CalcJob] | type[WorkChain] | Callable[..., t.Any],
     *,
     declares_ports: bool,
     errors: type[ExitCodeEnum] | UnionType | None = None,
-) -> tuple[dict[str, ExitCode], tuple[str, ...]]:
+) -> None:
     """Reject task declarations the graph runtime cannot represent.
 
     Process classes check their ports when their task declaration is built.
-    Returns the declared error codes and enum identifiers, empty without `errors`.
     """
     if is_process_function(function):
         msg = 'tasks take plain functions, not decorated process functions; pass the undecorated function instead.'
@@ -535,9 +538,7 @@ def _check_task_contract(
                 + 'use alphanumerics and underscores without leading or trailing underscores instead'
             )
             raise GraphTypeCheckError(msg) from exception
-        if errors is None:
-            return {}, ()
-        return _error_codes(errors)
+        return
     if declares_ports:
         msg = 'task functions declare their ports through annotations; `inputs` and `outputs` apply to process classes.'
         raise GraphTypeCheckError(msg)
@@ -565,7 +566,6 @@ def _check_task_contract(
             'annotate the function or wrap third-party functions in an annotated one.'
         )
         raise GraphTypeCheckError(msg)
-    return {}, ()
 
 
 def _build_task(
@@ -576,12 +576,14 @@ def _build_task(
     errors: type[ExitCodeEnum] | UnionType | None = None,
 ) -> CalcJobTaskHandle | WorkChainTaskHandle | FunctionTaskHandle[P, R]:
     """Construct a task handle with static leaf outputs and fixed graph inputs."""
-    exit_codes, error_enums = _check_task_contract(function, declares_ports=bool(inputs or outputs), errors=errors)
+    _check_task_contract(function, declares_ports=bool(inputs or outputs), errors=errors)
     if inspect.isclass(function) and issubclass(function, CalcJob):
+        exit_codes, error_enums = _error_codes(errors) if errors is not None else ({}, ())
         return CalcJobTaskHandle(
             function, inputs=inputs, outputs=outputs, exit_codes=exit_codes, error_enums=error_enums
         )
     if inspect.isclass(function) and issubclass(function, WorkChain):
+        exit_codes, error_enums = _error_codes(errors) if errors is not None else ({}, ())
         return WorkChainTaskHandle(
             function, inputs=inputs, outputs=outputs, exit_codes=exit_codes, error_enums=error_enums
         )

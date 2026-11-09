@@ -738,16 +738,8 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
         test = _bind_call_condition(state, test=test)
     condition_test: t.Literal['truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'] = 'truthy'
     condition_member: tuple[str, str] | None = None
-    if (
-        isinstance(test, ast.Compare)
-        and len(test.ops) == 1
-        and isinstance(test.ops[0], (ast.Is, ast.IsNot))
-        and len(test.comparators) == 1
-        and isinstance(test.comparators[0], ast.Constant)
-        and test.comparators[0].value is None
-    ):
-        condition_test = 'is_none' if isinstance(test.ops[0], ast.Is) else 'is_not_none'
-        test = test.left
+    if (none_test := _match_none_test(test)) is not None:
+        test, condition_test = none_test
     elif (matched := _match_member_test(state, test)) is not None:
         test, condition_test, condition_member = matched
     first = _lower_arm(state, statements=statement.body)
@@ -777,12 +769,27 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
     state.names[first.name] = _Reference(instance, port=port or selected.port, shape=selected.shape)
 
 
+def _match_none_test(test: ast.expr) -> tuple[ast.expr, t.Literal['is_none', 'is_not_none']] | None:
+    """Split `wire is None` into its wire and test kind, or return `None`."""
+    if (
+        isinstance(test, ast.Compare)
+        and len(test.ops) == 1
+        and isinstance(test.ops[0], (ast.Is, ast.IsNot))
+        and len(test.comparators) == 1
+        and isinstance(test.comparators[0], ast.Constant)
+        and test.comparators[0].value is None
+    ):
+        kind: t.Literal['is_none', 'is_not_none'] = 'is_none' if isinstance(test.ops[0], ast.Is) else 'is_not_none'
+        return test.left, kind
+    return None
+
+
 def _match_member_test(
     state: _LoweringState, test: ast.expr
 ) -> tuple[ast.expr, t.Literal['is_member', 'is_not_member'], tuple[str, str]] | None:
     """Lower `wire is Enum.MEMBER` to a member test, or reject an unknown member.
 
-    Exactly one side must resolve to an enum member; the other side is the
+    The first side resolving to an enum member wins; the other side is the
     wire, checked as usual when it is lowered. A wire tested against an
     unknown name reports the missing member instead of a generic rejection.
     """
@@ -799,7 +806,7 @@ def _match_member_test(
     if member is None:
         member = _resolve_enum_member(state, left)
         wire = right
-    if member is not None and wire is not None:
+    if member is not None and not isinstance(wire, ast.Constant):
         test_kind: t.Literal['is_member', 'is_not_member'] = (
             'is_member' if isinstance(test.ops[0], ast.Is) else 'is_not_member'
         )
@@ -837,7 +844,8 @@ def _resolve_enum_member(state: _LoweringState, node: ast.expr) -> tuple[str, st
         parts.append(target.attr)
         target = target.value
     if isinstance(target, ast.Name):
-        if not parts and target.id in state.names:
+        # A base shadowing an enclosing wire stays a wire, as with dotted calls.
+        if target.id in state.names:
             return None
         try:
             resolved: t.Any = state.definition.function.__globals__[target.id]
