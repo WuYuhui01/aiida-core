@@ -30,7 +30,7 @@ from aiida.engine.processes.graphs.ir import (
 )
 from aiida.engine.processes.graphs.shapes import LeafShape, NamespaceShape
 from aiida.engine.processes.ports import PortNamespace
-from aiida.orm import EnumData, Node, load_node, to_aiida_type
+from aiida.orm import EnumData, Node, from_aiida_type, load_node, to_aiida_type
 from aiida.orm.nodes.data.bool import Bool
 
 __all__ = ('GraphRun',)
@@ -289,6 +289,8 @@ class GraphRun:
             selected = condition is None
         elif task.condition_test == 'is_not_none':
             selected = condition is not None
+        elif task.condition_test in ('is_member', 'is_not_member'):
+            selected = self._holds_member(task, condition, task.condition_test == 'is_member')
         else:
             selected = _holds(condition)
         taken = task.body if selected else task.otherwise
@@ -381,6 +383,15 @@ class GraphRun:
             # synthesizes its member from the child exit status instead.
             values['error'] = self._error_member(task, node)
         return self._value_at(values, ports, path)
+
+    @staticmethod
+    def _holds_member(task: BranchControl, condition: t.Any, expected_when: bool) -> bool:
+        """Return whether a condition matches the member a branch test names."""
+        assert task.condition_member is not None
+        identifier, name = task.condition_member
+        expected = get_object_loader().load_object(identifier).__members__[name]
+        actual = from_aiida_type(condition) if isinstance(condition, EnumData) else condition
+        return (actual == expected) is expected_when
 
     @staticmethod
     def _error_member(task: ProcessTask, node: Node) -> t.Any:

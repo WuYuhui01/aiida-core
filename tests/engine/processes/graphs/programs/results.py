@@ -121,6 +121,70 @@ def signed_ratio(numerator: float, denominator: float) -> float:
     return selected
 
 
+@task
+def union_total(value: float | None, error: DivisionErrors | InputErrors | None) -> float:
+    """Read the successful value, or negate the declared failure status."""
+    if value is not None:
+        return value
+    assert error is not None
+    return -float(error.value.status)
+
+
+@graph
+def matched_signed(numerator: float, denominator: float) -> float:
+    """Branch on one declared member; the union handler takes the rest."""
+    value, error = divide_signed(numerator=numerator, denominator=denominator)
+    if error is DivisionErrors.ZERO_DENOMINATOR:
+        selected = recover(error=error)
+    else:
+        selected = union_total(value=value, error=error)
+    return selected
+
+
+@graph
+def matched_negated(numerator: float, denominator: float) -> float:
+    """Branch away from one declared member; the union handler takes the rest."""
+    value, error = divide_signed(numerator=numerator, denominator=denominator)
+    if error is not DivisionErrors.ZERO_DENOMINATOR:
+        selected = union_total(value=value, error=error)
+    else:
+        selected = recover(error=error)
+    return selected
+
+
+@graph
+def matched_equality(value: float) -> float:
+    """Compare an error arm for equality; only `is` tests members."""
+    outcome, error = divide(numerator=value, denominator=0.0)
+    if error == 1:
+        selected = recover(error=error)
+    else:
+        selected = read_ratio(value=outcome)
+    return selected
+
+
+@graph
+def matched_unknown_member(value: float) -> float:
+    """Test an unknown name; the compared member must exist."""
+    outcome, error = divide(numerator=value, denominator=0.0)
+    if error is MISSING:  # noqa: F821 - the unknown member is rejected
+        selected = recover(error=error)
+    else:
+        selected = read_ratio(value=outcome)
+    return selected
+
+
+@graph
+def matched_constant(value: float) -> float:
+    """Test a constant; only enum members can be matched."""
+    outcome, error = divide(numerator=value, denominator=0.0)
+    if error is 1:  # noqa: F632 - the constant identity test is rejected
+        selected = recover(error=error)
+    else:
+        selected = read_ratio(value=outcome)
+    return selected
+
+
 class ModelSettings(PortModel):
     """A structured success type, rejected: `Result` arms are single leaves for now."""
 

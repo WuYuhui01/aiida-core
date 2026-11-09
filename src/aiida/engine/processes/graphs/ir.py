@@ -497,11 +497,13 @@ class GraphTask(abc.ABC):
                 if body is None:
                     msg = 'malformed graph task declaration; missing body.'
                     raise GraphTypeCheckError(msg)
+                stored_member = data.get('condition_member')
                 return BranchControl(
                     body=body,
                     otherwise=GraphIR.from_dict(data['otherwise']),
                     condition_port=data.get('condition_port', _CONDITION_PORT),
                     condition_test=data.get('condition_test', 'truthy'),
+                    condition_member=tuple(stored_member) if stored_member is not None else None,
                     **common,
                 )
             if kind == 'loop':
@@ -566,18 +568,24 @@ class BranchControl(BodyTask):
 
     ``condition_port`` is a synthetic port wired outside either side's declared inputs, so it
     never appears in their declared inputs. ``condition_test`` decides how the condition
-    selects a side: truthiness, or a presence test against `None`.
+    selects a side: truthiness, a presence test against `None`, or an identity
+    test against one declared error member, named by ``condition_member`` as an
+    enum identifier and member name pair.
     """
 
     KIND: t.ClassVar[_TaskKind] = 'branch'
     condition_port: str = _CONDITION_PORT
     otherwise: GraphIR
-    condition_test: t.Literal['truthy', 'is_none', 'is_not_none'] = 'truthy'
+    condition_test: t.Literal['truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'] = 'truthy'
+    condition_member: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         """Reject stored declarations with an unknown condition test."""
-        if self.condition_test not in ('truthy', 'is_none', 'is_not_none'):
+        if self.condition_test not in ('truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'):
             msg = f'unsupported branch condition test `{self.condition_test}`.'
+            raise GraphTypeCheckError(msg)
+        if (self.condition_test in ('is_member', 'is_not_member')) != (self.condition_member is not None):
+            msg = 'member tests need exactly one declared error member.'
             raise GraphTypeCheckError(msg)
 
     @property
@@ -606,6 +614,7 @@ class BranchControl(BodyTask):
             **super().to_dict(),
             'condition_port': self.condition_port,
             'condition_test': self.condition_test,
+            'condition_member': list(self.condition_member) if self.condition_member is not None else None,
             'otherwise': self.otherwise.to_dict(),
         }
 

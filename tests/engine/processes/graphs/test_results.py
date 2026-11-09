@@ -14,7 +14,7 @@ import typing as t
 import pytest
 
 from aiida.calculations.shell import ShellJob
-from aiida.common.exceptions import GraphTypeCheckError, GraphValidationError
+from aiida.common.exceptions import GraphLanguageError, GraphTypeCheckError, GraphValidationError
 from aiida.common.links import LinkType
 from aiida.common.loaders import get_object_loader
 from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, Result, task
@@ -325,7 +325,44 @@ def test_result_contract_in_ir(declaration: t.Any, handle: t.Any, labels: set[st
     branch = next(entry for entry in spec.tasks if isinstance(entry, BranchControl))
     assert isinstance(branch, BranchControl)
     assert branch.condition_test in ('is_none', 'is_not_none')
+    assert branch.condition_member is None
     assert GraphIR.from_dict(json.loads(json.dumps(spec.to_dict()))).to_dict() == spec.to_dict()
+
+
+@pytest.mark.parametrize(
+    'declaration, test',
+    [
+        pytest.param(results.matched_signed, 'is_member', id='matched'),
+        pytest.param(results.matched_negated, 'is_not_member', id='negated'),
+    ],
+)
+def test_matched_condition_in_ir(declaration: t.Any, test: str) -> None:
+    """A member test stores its enum identifier and member name through a round trip."""
+    from aiida.common.loaders import get_object_loader
+
+    spec = declaration.build()
+    branch = next(entry for entry in spec.tasks if isinstance(entry, BranchControl))
+    assert isinstance(branch, BranchControl)
+    assert branch.condition_test == test
+    assert branch.condition_member is not None
+    identifier, name = branch.condition_member
+    assert name == 'ZERO_DENOMINATOR'
+    assert get_object_loader().load_object(identifier) is DivisionErrors
+    assert GraphIR.from_dict(json.loads(json.dumps(spec.to_dict()))).to_dict() == spec.to_dict()
+
+
+@pytest.mark.parametrize(
+    'declaration, match',
+    [
+        pytest.param(results.matched_equality, 'put this check in a task', id='equality-test'),
+        pytest.param(results.matched_unknown_member, 'not a known enum member', id='unknown-member'),
+        pytest.param(results.matched_constant, 'put this check in a task', id='constant-test'),
+    ],
+)
+def test_matched_condition_rejected(declaration: t.Any, match: str) -> None:
+    """Only `is` tests against declared enum members lower to member branches."""
+    with pytest.raises(GraphLanguageError, match=match):
+        declaration.build()
 
 
 def test_legacy_task_ir_without_exit_codes() -> None:
@@ -397,6 +434,60 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             'value',
             'read_ratio',
             id='signed-ok',
+        ),
+        pytest.param(
+            results.matched_signed,
+            {'numerator': 1.0, 'denominator': 0.0},
+            -410.0,
+            410,
+            'error',
+            'recover',
+            id='matched-zero-denominator',
+        ),
+        pytest.param(
+            results.matched_signed,
+            {'numerator': -1.0, 'denominator': 2.0},
+            -411.0,
+            411,
+            'error',
+            'union_total',
+            id='matched-negative-numerator',
+        ),
+        pytest.param(
+            results.matched_signed,
+            {'numerator': 1.0, 'denominator': 2.0},
+            0.5,
+            0,
+            'value',
+            'union_total',
+            id='matched-ok',
+        ),
+        pytest.param(
+            results.matched_negated,
+            {'numerator': 1.0, 'denominator': 0.0},
+            -410.0,
+            410,
+            'error',
+            'recover',
+            id='negated-zero-denominator',
+        ),
+        pytest.param(
+            results.matched_negated,
+            {'numerator': -1.0, 'denominator': 2.0},
+            -411.0,
+            411,
+            'error',
+            'union_total',
+            id='negated-negative-numerator',
+        ),
+        pytest.param(
+            results.matched_negated,
+            {'numerator': 1.0, 'denominator': 2.0},
+            0.5,
+            0,
+            'value',
+            'union_total',
+            id='negated-ok',
         ),
     ],
 )

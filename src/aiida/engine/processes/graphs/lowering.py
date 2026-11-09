@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import builtins
 import copy
+import enum
 import functools
 import inspect
 import textwrap
@@ -27,6 +28,7 @@ from types import UnionType
 
 from aiida.common.exceptions import GraphError, GraphLanguageError, GraphTypeCheckError, GraphValidationError
 from aiida.common.links import validate_link_label
+from aiida.common.loaders import get_object_loader
 from aiida.engine.processes.calcjobs import CalcJob
 from aiida.engine.processes.exit_code import ExitCodeEnum
 from aiida.engine.processes.graphs.inputs import _place
@@ -734,7 +736,8 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
     test: ast.expr = statement.test
     if isinstance(test, ast.Call):
         test = _bind_call_condition(state, test=test)
-    condition_test: t.Literal['truthy', 'is_none', 'is_not_none'] = 'truthy'
+    condition_test: t.Literal['truthy', 'is_none', 'is_not_none', 'is_member', 'is_not_member'] = 'truthy'
+    condition_member: tuple[str, str] | None = None
     if (
         isinstance(test, ast.Compare)
         and len(test.ops) == 1
@@ -745,6 +748,8 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
     ):
         condition_test = 'is_none' if isinstance(test.ops[0], ast.Is) else 'is_not_none'
         test = test.left
+    elif (matched := _match_member_test(state, test)) is not None:
+        test, condition_test, condition_member = matched
     first = _lower_arm(state, statements=statement.body)
     if statement.orelse:
         second = _lower_arm(state, statements=statement.orelse)
@@ -760,11 +765,89 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
     given = _wire_branch_inputs(state, instance=instance, first=first, second=second, test=test)
     state.tasks.append(
         BranchControl(
-            name=instance, inputs=given, body=first.body, otherwise=second.body, condition_test=condition_test
+            name=instance,
+            inputs=given,
+            body=first.body,
+            otherwise=second.body,
+            condition_test=condition_test,
+            condition_member=condition_member,
         )
     )
     selected = first.child.names[first.name]
     state.names[first.name] = _Reference(instance, port=port or selected.port, shape=selected.shape)
+
+
+def _match_member_test(
+    state: _LoweringState, test: ast.expr
+) -> tuple[ast.expr, t.Literal['is_member', 'is_not_member'], tuple[str, str]] | None:
+    """Lower `wire is Enum.MEMBER` to a member test, or reject an unknown member.
+
+    Exactly one side must resolve to an enum member; the other side is the
+    wire, checked as usual when it is lowered. A wire tested against an
+    unknown name reports the missing member instead of a generic rejection.
+    """
+    if not (
+        isinstance(test, ast.Compare)
+        and len(test.ops) == 1
+        and isinstance(test.ops[0], (ast.Is, ast.IsNot))
+        and len(test.comparators) == 1
+    ):
+        return None
+    left, (right,) = test.left, test.comparators
+    member = _resolve_enum_member(state, right)
+    wire = left
+    if member is None:
+        member = _resolve_enum_member(state, left)
+        wire = right
+    if member is not None and wire is not None:
+        test_kind: t.Literal['is_member', 'is_not_member'] = (
+            'is_member' if isinstance(test.ops[0], ast.Is) else 'is_not_member'
+        )
+        return wire, test_kind, member
+    for value, other in ((left, right), (right, left)):
+        if (
+            isinstance(value, ast.Name)
+            and value.id in state.names
+            and isinstance(other, (ast.Name, ast.Attribute))
+            and not _known_name(state, other)
+        ):
+            msg = (
+                'conditions test declared error members, so the compared name must be one; '
+                + f'{ast.unparse(other)!r} is not a known enum member; check the spelling instead'
+            )
+            _reject(state, node=other, reason=msg)
+    return None
+
+
+def _known_name(state: _LoweringState, node: ast.expr) -> bool:
+    """Return whether a name or dotted path starts from a known wire or module."""
+    target: ast.expr = node
+    while isinstance(target, ast.Attribute):
+        target = target.value
+    if not isinstance(target, ast.Name):
+        return True
+    return target.id in state.names or target.id in state.definition.function.__globals__
+
+
+def _resolve_enum_member(state: _LoweringState, node: ast.expr) -> tuple[str, str] | None:
+    """Return the enum identifier and member name behind a reference, or `None`."""
+    target: ast.expr = node
+    parts: list[str] = []
+    while isinstance(target, ast.Attribute):
+        parts.append(target.attr)
+        target = target.value
+    if isinstance(target, ast.Name):
+        if not parts and target.id in state.names:
+            return None
+        try:
+            resolved: t.Any = state.definition.function.__globals__[target.id]
+            for part in reversed(parts):
+                resolved = getattr(resolved, part)
+        except (KeyError, AttributeError):
+            return None
+        if isinstance(resolved, enum.Enum):
+            return get_object_loader().identify_object(type(resolved)), resolved.name
+    return None
 
 
 def _check_branch_shape(state: _LoweringState, statement: ast.If) -> None:
