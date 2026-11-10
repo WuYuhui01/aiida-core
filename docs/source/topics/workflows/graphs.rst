@@ -376,7 +376,8 @@ Error inputs arrive as the enum member itself, typed by the annotation, so handl
 match on members directly instead of reading storage nodes.
 Branches test the arms with ``is None`` and ``is not None``, or match one declared
 member with ``is`` and ``is not``, such as ``if error is DivisionErrors.ZERO_DENOMINATOR``.
-An unknown compared name fails when the graph is built.
+An unknown compared name fails when the graph is built. A branch nests inside an error arm,
+so each declared member routes to its own handler task with the dispatch visible in the body.
 
 A declared failure sets the child's exit status but counts as completed, so dependents still run.
 Undeclared failures, exceptions, and missing outputs keep the previous behavior: dependents never start

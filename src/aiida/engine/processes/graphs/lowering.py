@@ -685,6 +685,9 @@ def _lower_arm(state: _LoweringState, statements: list[ast.stmt]) -> _Arm:
             _reject(state, node=statement, reason=msg)
         name = rebound[0]
         reference = child.names[name]
+    elif isinstance(statement, ast.If):
+        name = _lower_branch(child, statement=statement)
+        reference = child.names[name]
     else:
         name = _lower_assignment(child, statement=statement, rebind=True)
         reference = child.names[name]
@@ -730,8 +733,8 @@ def _rekey_alias(arm: _Arm, port: str) -> _Arm:
     return arm._replace(body=replace(arm.body, outputs={port: endpoint}))
 
 
-def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
-    """Lower an if statement to a branch control task."""
+def _lower_branch(state: _LoweringState, statement: ast.If) -> str:
+    """Lower an if statement to a branch control task, returning the exposed wire."""
     _check_branch_shape(state, statement=statement)
     test: ast.expr = statement.test
     if isinstance(test, ast.Call):
@@ -767,6 +770,7 @@ def _lower_branch(state: _LoweringState, statement: ast.If) -> None:
     )
     selected = first.child.names[first.name]
     state.names[first.name] = _Reference(instance, port=port or selected.port, shape=selected.shape)
+    return first.name
 
 
 def _match_none_test(test: ast.expr) -> tuple[ast.expr, t.Literal['is_none', 'is_not_none']] | None:
@@ -1017,16 +1021,46 @@ def _callee_ids(statements: list[ast.stmt], enclosing: Mapping[str, _Reference])
     return callees
 
 
+def _member_test_skips(state: _LoweringState, statements: list[ast.stmt]) -> set[int]:
+    """Return the identities of names in a member-test position.
+
+    A compared enum member resolves when the graph is built and never
+    travels as a region input, so collection skips it; the wire side
+    still collects as usual. An unknown compared name skips too, so the
+    member matcher reports the spelling instead of a generic rejection.
+    """
+    skipped: set[int] = set()
+    for node in _walk_region(statements):
+        if not (
+            isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.Is, ast.IsNot))
+            and len(node.comparators) == 1
+        ):
+            continue
+        left, (right,) = node.left, node.comparators
+        for value, other in ((left, right), (right, left)):
+            if _resolve_enum_member(state, other) is not None or (
+                isinstance(value, ast.Name)
+                and value.id in state.names
+                and isinstance(other, (ast.Name, ast.Attribute))
+                and not _known_name(state, other)
+            ):
+                skipped.update(id(part) for part in ast.walk(other) if isinstance(part, ast.Name))
+    return skipped
+
+
 def _collect_region_inputs(state: _LoweringState, statements: list[ast.stmt]) -> _LoweringState:
     """Collect the enclosing values a nested body reads as region inputs."""
     # Names read in the body become inputs of the nested graph. Calls are not values.
     assigned = _assigned_names(statements)
     callees = _callee_ids(statements, state.names)
+    skipped = _member_test_skips(state, statements)
     reads: dict[str, ast.Name] = {}
     for node in _walk_region(statements):
         if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load):
             continue
-        if node.id in assigned or id(node) in callees or node.id in reads:
+        if node.id in assigned or id(node) in callees or id(node) in skipped or node.id in reads:
             continue
         reads[node.id] = node
     child = _LoweringState(state.definition, stack=state.stack)

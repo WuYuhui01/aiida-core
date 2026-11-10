@@ -510,3 +510,37 @@ def test_declared_failure_branches(
     (branch,) = branches.values()
     assert branch.is_finished_ok
     assert set(branch.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()) == {branch_child}
+
+
+def _placed_labels(node: t.Any) -> set[str]:
+    """Return the link labels placed anywhere below a graph node, at any depth."""
+    labels: set[str] = set()
+    for link_type in (LinkType.CALL_CALC, LinkType.CALL_WORK):
+        outgoing = node.base.links.get_outgoing(link_type=link_type).nested()
+        labels.update(outgoing)
+        for child in outgoing.values():
+            labels.update(_placed_labels(child))
+    return labels
+
+
+@pytest.mark.parametrize(
+    ('inputs', 'expected', 'task_status', 'handler'),
+    [
+        pytest.param({'numerator': 1.0, 'denominator': 0.0}, 0.0, 410, 'recover', id='zero-denominator'),
+        pytest.param({'numerator': -1.0, 'denominator': 2.0}, -411.0, 411, 'recover_negative', id='negative-numerator'),
+        pytest.param({'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'read_ratio', id='ok'),
+    ],
+)
+def test_routed_signed_dispatches_per_member(
+    inputs: dict[str, t.Any], expected: float, task_status: int, handler: str
+) -> None:
+    """A branch nested in an error arm routes each declared member to its own handler."""
+    outputs, node = run_get_node(results.routed_signed, **inputs)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected
+    calls = node.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()
+    assert len(calls) == 1
+    (fallible,) = calls.values()
+    assert fallible.exit_status == task_status
+    placed = _placed_labels(node)
+    assert handler in placed

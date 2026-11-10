@@ -141,6 +141,25 @@ def matched_signed(numerator: float, denominator: float) -> float:
     return selected
 
 
+@task
+def recover_negative(error: InputErrors) -> float:
+    """Recover from a negative numerator with its negated status."""
+    return -float(error.value.status)
+
+
+@graph
+def routed_signed(numerator: float, denominator: float) -> float:
+    """Route each declared member to its own handler; the dispatch is the body."""
+    value, error = divide_signed(numerator=numerator, denominator=denominator)
+    if error is None:
+        selected = read_ratio(value=value)
+    elif error is DivisionErrors.ZERO_DENOMINATOR:
+        selected = recover(error=error)
+    else:
+        selected = recover_negative(error=error)
+    return selected
+
+
 @graph
 def matched_negated(numerator: float, denominator: float) -> float:
     """Branch away from one declared member; the union handler takes the rest."""
