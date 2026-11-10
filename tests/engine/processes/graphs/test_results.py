@@ -414,7 +414,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             0.5,
             0,
             'value',
-            'read_ratio',
+            None,
             id='is-none-ok',
         ),
         pytest.param(
@@ -441,7 +441,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             0.5,
             0,
             'value',
-            'read_ratio',
+            None,
             id='signed-ok',
         ),
         pytest.param(
@@ -538,7 +538,7 @@ def _placed_call_labels(node: t.Any) -> set[str]:
     ('handle', 'inputs'),
     [
         (results.divide, {'numerator': 1.0, 'denominator': 2.0}),
-        (results.read_ratio, {'value': 1.0}),
+        (results.recover_zero, {'error': DivisionErrors.ZERO_DENOMINATOR}),
     ],
     ids=['result-task', 'plain-task'],
 )

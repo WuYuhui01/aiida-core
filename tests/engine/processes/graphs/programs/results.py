@@ -49,12 +49,6 @@ def recover_negative(numerator: float, error: InputErrors) -> float:
 
 
 @task
-def read_ratio(value: float) -> float:
-    """Read a successful ratio."""
-    return value
-
-
-@task
 def divide_signed(numerator: float, denominator: float) -> Result[float, DivisionErrors | InputErrors]:
     """Divide, declaring failures from two error enums."""
     if denominator == 0:
@@ -112,7 +106,7 @@ def ratio_is_none(numerator: float, denominator: float) -> float:
     """Divide, testing the success arm for `None` instead of the error arm."""
     value, error = divide(numerator=numerator, denominator=denominator)
     if error is None:
-        selected = read_ratio(value=value)
+        selected = value
     else:
         selected = recover_zero(error=error)
     return selected
@@ -125,7 +119,7 @@ def signed_ratio(numerator: float, denominator: float) -> float:
     if error is not None:
         selected = union_fallback(error=error)
     else:
-        selected = read_ratio(value=value)
+        selected = value
     return selected
 
 
@@ -167,7 +161,7 @@ def matched_equality(value: float) -> float:
     if error == 1:
         selected = recover_zero(error=error)
     else:
-        selected = read_ratio(value=outcome)
+        selected = outcome
     return selected
 
 
@@ -178,7 +172,7 @@ def matched_unknown_member(value: float) -> float:
     if error is MISSING:  # noqa: F821 - the unknown member is rejected
         selected = recover_zero(error=error)
     else:
-        selected = read_ratio(value=outcome)
+        selected = outcome
     return selected
 
 
@@ -189,7 +183,7 @@ def matched_constant(value: float) -> float:
     if error is 1:  # noqa: F632 - the constant identity test is rejected
         selected = recover_zero(error=error)
     else:
-        selected = read_ratio(value=outcome)
+        selected = outcome
     return selected
 
 
