@@ -177,7 +177,7 @@ def test_parameter_defaults_fill_missing_inputs() -> None:
         pytest.param(assignments.augmented_assignment, 'move it into a task', id='aug-assign'),
         pytest.param(assignments.annotated_assignment, 'drop the annotation', id='ann-assign'),
         pytest.param(loops.fanout, 'for loops are not supported', id='fanout'),
-        pytest.param(loops.list_comprehension, 'must call a task or graph', id='listcomp'),
+        pytest.param(loops.list_comprehension, 'write out one call per value', id='listcomp'),
         pytest.param(loops.tuple_targets_in_loop, 'before the loop instead', id='loop-tuple'),
         pytest.param(branches.loop_arm_two_names, 'exposes one wire', id='loop-arm-names'),
         pytest.param(parameters.variadic_parameters, 'list each input separately', id='variadic'),

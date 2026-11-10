@@ -607,10 +607,43 @@ def test_plain_port_model_task_stores_fields() -> None:
 
 @pytest.mark.usefixtures('aiida_profile_clean')
 def test_plain_port_model_output_wires_into_input() -> None:
-    """A structured task output wires whole into a structured task input."""
+    """A structured task output wires field by field into a structured task input."""
     outputs, node = run_get_node(results.quotient_double, numerator=1.0, denominator=2.0)
     assert node.is_finished_ok
     assert outputs['result'].value == 0.5
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+def test_nested_namespace_selects_two_levels() -> None:
+    """A two-level namespace select wires into a structured task input."""
+    outputs, node = run_get_node(results.nested_select)
+    assert node.is_finished_ok
+    assert outputs['result'].value == 0.5
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    ('inputs', 'expected', 'task_status', 'handler'),
+    [
+        pytest.param({'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'read_quotient', id='selected-ok'),
+        pytest.param({'numerator': 1.0, 'denominator': 0.0}, 0.0, 410, 'recover_zero', id='selected-zero-denominator'),
+    ],
+)
+def test_single_name_binding_selects_arms(
+    inputs: dict[str, t.Any], expected: float, task_status: int, handler: str
+) -> None:
+    """A bound whole result selects arms and fields through dotted paths."""
+    outputs, node = run_get_node(results.selected_ratio, **inputs)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected
+    calls = node.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()
+    assert len(calls) == 1
+    (fallible,) = calls.values()
+    assert fallible.exit_status == task_status
+    branches = node.base.links.get_outgoing(link_type=LinkType.CALL_WORK).nested()
+    assert len(branches) == 1
+    (branch,) = branches.values()
+    assert _placed_call_labels(branch) == {handler}
 
 
 def _placed_call_labels(node: t.Any) -> set[str]:

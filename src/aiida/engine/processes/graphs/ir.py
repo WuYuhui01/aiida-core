@@ -334,6 +334,13 @@ class TaskIR:
         assert isinstance(selected, (InputPort, OutputPort, PortNamespace))
         return _shape_from_port(selected)
 
+    @property
+    def output_shape(self) -> NamespaceShape:
+        """Return the whole outputs contract as a nested shape."""
+        shape = _shape_from_port(self.outputs)
+        assert isinstance(shape, NamespaceShape)
+        return shape
+
     def to_dict(self) -> dict[str, t.Any]:
         """Return the task declaration without the live process class."""
         data: dict[str, t.Any] = {'identifier': self.identifier, 'executor': self.executor.to_dict()}
