@@ -273,7 +273,7 @@ def test_err_result_stores_error_arm(
 @pytest.mark.usefixtures('aiida_profile_clean')
 def test_error_member_feeds_recovery_input() -> None:
     """The stored error member arrives at the recovery task unwrapped."""
-    outputs, node = run_get_node(results.recover, error=DivisionErrors.ZERO_DENOMINATOR)
+    outputs, node = run_get_node(results.recover_zero, error=DivisionErrors.ZERO_DENOMINATOR)
     assert node.is_finished_ok
     assert t.cast(t.Any, outputs).value == 0.0
 
@@ -303,7 +303,12 @@ def test_legacy_exit_code_preserved() -> None:
 @pytest.mark.parametrize(
     'declaration, handle, labels',
     [
-        pytest.param(results.ratio, results.divide, {'ZERO_DENOMINATOR'}, id='ratio'),
+        pytest.param(
+            results.ratio,
+            results.divide_signed,
+            {'DivisionErrors_ZERO_DENOMINATOR', 'InputErrors_NEGATIVE_NUMERATOR'},
+            id='ratio',
+        ),
         pytest.param(results.ratio_is_none, results.divide, {'ZERO_DENOMINATOR'}, id='ratio-is-none'),
         pytest.param(
             results.signed_ratio,
@@ -364,7 +369,7 @@ def test_matched_condition_rejected(declaration: t.Any, match: str) -> None:
 
 def test_legacy_task_ir_without_exit_codes() -> None:
     """Task declarations stored before exit codes default to no declared failures."""
-    divide = results.ratio.build().task('divide')
+    divide = results.ratio.build().task('divide_signed')
     assert isinstance(divide, ProcessTask)
     data = divide.spec.to_dict()
     data.pop('exit_codes')
@@ -381,19 +386,26 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             0.0,
             410,
             'error',
-            'recover',
+            'recover_zero',
             id='ratio-zero-denominator',
         ),
         pytest.param(
-            results.ratio, {'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'value', 'read_ratio', id='ratio-ok'
+            results.ratio,
+            {'numerator': -1.0, 'denominator': 2.0},
+            1.0,
+            411,
+            'error',
+            'recover_negative',
+            id='ratio-negative-numerator',
         ),
+        pytest.param(results.ratio, {'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'value', None, id='ratio-ok'),
         pytest.param(
             results.ratio_is_none,
             {'numerator': 1.0, 'denominator': 0.0},
             0.0,
             410,
             'error',
-            'recover',
+            'recover_zero',
             id='is-none-zero-denominator',
         ),
         pytest.param(
@@ -438,7 +450,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             0.0,
             410,
             'error',
-            'recover',
+            'recover_zero',
             id='matched-zero-denominator',
         ),
         pytest.param(
@@ -465,7 +477,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             0.0,
             410,
             'error',
-            'recover',
+            'recover_zero',
             id='negated-zero-denominator',
         ),
         pytest.param(
@@ -494,7 +506,7 @@ def test_declared_failure_branches(
     expected: float,
     task_status: int,
     task_arm: str,
-    branch_child: str,
+    branch_child: str | None,
 ) -> None:
     """A declared failure branches to recovery with exit zero; a success reads the value arm."""
     outputs, node = run_get_node(declaration, **inputs)
@@ -509,41 +521,17 @@ def test_declared_failure_branches(
     assert len(branches) == 1
     (branch,) = branches.values()
     assert branch.is_finished_ok
-    assert set(branch.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()) == {branch_child}
+    placed = _placed_call_labels(branch)
+    assert placed == ({branch_child} if branch_child is not None else set())
 
 
-def _placed_labels(node: t.Any) -> set[str]:
-    """Return the link labels placed anywhere below a graph node, at any depth."""
-    labels: set[str] = set()
-    for link_type in (LinkType.CALL_CALC, LinkType.CALL_WORK):
-        outgoing = node.base.links.get_outgoing(link_type=link_type).nested()
-        labels.update(outgoing)
-        for child in outgoing.values():
-            labels.update(_placed_labels(child))
+def _placed_call_labels(node: t.Any) -> set[str]:
+    """Return the calc labels placed below a branch, descending into nested branches."""
+    labels = set(node.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested())
+    nested = node.base.links.get_outgoing(link_type=LinkType.CALL_WORK).nested()
+    for child in nested.values():
+        labels.update(_placed_call_labels(child))
     return labels
-
-
-@pytest.mark.parametrize(
-    ('inputs', 'expected', 'task_status', 'handler'),
-    [
-        pytest.param({'numerator': 1.0, 'denominator': 0.0}, 0.0, 410, 'recover', id='zero-denominator'),
-        pytest.param({'numerator': -1.0, 'denominator': 2.0}, 1.0, 411, 'recover_negative', id='negative-numerator'),
-        pytest.param({'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'read_ratio', id='ok'),
-    ],
-)
-def test_routed_signed_dispatches_per_member(
-    inputs: dict[str, t.Any], expected: float, task_status: int, handler: str
-) -> None:
-    """A branch nested in an error arm routes each declared member to its own handler."""
-    outputs, node = run_get_node(results.routed_signed, **inputs)
-    assert node.is_finished_ok
-    assert outputs['result'].value == expected
-    calls = node.base.links.get_outgoing(link_type=LinkType.CALL_CALC).nested()
-    assert len(calls) == 1
-    (fallible,) = calls.values()
-    assert fallible.exit_status == task_status
-    placed = _placed_labels(node)
-    assert handler in placed
 
 
 @pytest.mark.parametrize(

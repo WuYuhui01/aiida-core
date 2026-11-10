@@ -347,30 +347,38 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
     class DivisionErrors(ExitCodeEnum):
         ZERO_DENOMINATOR = ExitCode(410, 'The denominator is zero.')
 
+    class InputErrors(ExitCodeEnum):
+        NEGATIVE_NUMERATOR = ExitCode(411, 'The numerator is negative.')
+
     @task
-    def divide(numerator: float, denominator: float) -> Result[float, DivisionErrors]:
+    def divide_signed(numerator: float, denominator: float) -> Result[float, DivisionErrors | InputErrors]:
         if denominator == 0:
             return Err(DivisionErrors.ZERO_DENOMINATOR)
+        if numerator < 0:
+            return Err(InputErrors.NEGATIVE_NUMERATOR)
         return Ok(numerator / denominator)
 
     @task
-    def recover(error: DivisionErrors) -> float:
+    def recover_zero(error: DivisionErrors) -> float:
         return 0.0  # neutral fallback
 
     @task
-    def read_ratio(value: float) -> float:
-        return value
+    def recover_negative(numerator: float, error: InputErrors) -> float:
+        return abs(numerator)  # fall back to the magnitude
 
     @graph
     def ratio(numerator: float, denominator: float) -> float:
-        value, error = divide(numerator=numerator, denominator=denominator)
-        if error is not None:
-            selected = recover(error=error)
+        value, error = divide_signed(numerator=numerator, denominator=denominator)
+        if error is None:
+            selected = value
+        elif error is DivisionErrors.ZERO_DENOMINATOR:
+            selected = recover_zero(error=error)
         else:
-            selected = read_ratio(value=value)
+            selected = recover_negative(numerator=numerator, error=error)
         return selected
 
 The call unpacks into ``(value, error)``; exactly one arm is present.
+The success arm passes the value through, and each declared member routes to its own handler task.
 Only the present arm creates data nodes; the absent arm reaches downstream inputs as ``None``.
 Error inputs arrive as the enum member itself, typed by the annotation, so handlers
 match on members directly instead of reading storage nodes.

@@ -37,9 +37,15 @@ def divide(numerator: float, denominator: float) -> Result[float, DivisionErrors
 
 
 @task
-def recover(error: DivisionErrors) -> float:
-    """Recover from a declared division failure with a neutral fallback."""
+def recover_zero(error: DivisionErrors) -> float:
+    """Recover from a zero denominator with a neutral fallback."""
     return 0.0
+
+
+@task
+def recover_negative(numerator: float, error: InputErrors) -> float:
+    """Recover from a negative numerator with its absolute value."""
+    return abs(numerator)
 
 
 @task
@@ -90,12 +96,14 @@ def missing_result_wrapper(value: int) -> Result[int, DivisionErrors]:
 
 @graph
 def ratio(numerator: float, denominator: float) -> float:
-    """Divide, recovering with `recover` when the denominator is zero."""
-    value, error = divide(numerator=numerator, denominator=denominator)
-    if error is not None:
-        selected = recover(error=error)
+    """Divide, routing each declared failure to its own handler."""
+    value, error = divide_signed(numerator=numerator, denominator=denominator)
+    if error is None:
+        selected = value
+    elif error is DivisionErrors.ZERO_DENOMINATOR:
+        selected = recover_zero(error=error)
     else:
-        selected = read_ratio(value=value)
+        selected = recover_negative(numerator=numerator, error=error)
     return selected
 
 
@@ -106,7 +114,7 @@ def ratio_is_none(numerator: float, denominator: float) -> float:
     if error is None:
         selected = read_ratio(value=value)
     else:
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     return selected
 
 
@@ -135,28 +143,9 @@ def matched_signed(numerator: float, denominator: float) -> float:
     """Branch on one declared member; the union handler takes the rest."""
     value, error = divide_signed(numerator=numerator, denominator=denominator)
     if error is DivisionErrors.ZERO_DENOMINATOR:
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     else:
         selected = union_total(value=value, error=error)
-    return selected
-
-
-@task
-def recover_negative(numerator: float, error: InputErrors) -> float:
-    """Recover from a negative numerator with its absolute value."""
-    return abs(numerator)
-
-
-@graph
-def routed_signed(numerator: float, denominator: float) -> float:
-    """Route each declared member to its own handler; the dispatch is the body."""
-    value, error = divide_signed(numerator=numerator, denominator=denominator)
-    if error is None:
-        selected = read_ratio(value=value)
-    elif error is DivisionErrors.ZERO_DENOMINATOR:
-        selected = recover(error=error)
-    else:
-        selected = recover_negative(numerator=numerator, error=error)
     return selected
 
 
@@ -167,7 +156,7 @@ def matched_negated(numerator: float, denominator: float) -> float:
     if error is not DivisionErrors.ZERO_DENOMINATOR:
         selected = union_total(value=value, error=error)
     else:
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     return selected
 
 
@@ -176,7 +165,7 @@ def matched_equality(value: float) -> float:
     """Compare an error arm for equality; only `is` tests members."""
     outcome, error = divide(numerator=value, denominator=0.0)
     if error == 1:
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     else:
         selected = read_ratio(value=outcome)
     return selected
@@ -187,7 +176,7 @@ def matched_unknown_member(value: float) -> float:
     """Test an unknown name; the compared member must exist."""
     outcome, error = divide(numerator=value, denominator=0.0)
     if error is MISSING:  # noqa: F821 - the unknown member is rejected
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     else:
         selected = read_ratio(value=outcome)
     return selected
@@ -198,7 +187,7 @@ def matched_constant(value: float) -> float:
     """Test a constant; only enum members can be matched."""
     outcome, error = divide(numerator=value, denominator=0.0)
     if error is 1:  # noqa: F632 - the constant identity test is rejected
-        selected = recover(error=error)
+        selected = recover_zero(error=error)
     else:
         selected = read_ratio(value=outcome)
     return selected
