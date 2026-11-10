@@ -142,9 +142,9 @@ def matched_signed(numerator: float, denominator: float) -> float:
 
 
 @task
-def recover_negative(error: InputErrors) -> float:
-    """Recover from a negative numerator with its negated status."""
-    return -float(error.value.status)
+def recover_negative(numerator: float, error: InputErrors) -> float:
+    """Recover from a negative numerator with its absolute value."""
+    return abs(numerator)
 
 
 @graph
@@ -156,7 +156,7 @@ def routed_signed(numerator: float, denominator: float) -> float:
     elif error is DivisionErrors.ZERO_DENOMINATOR:
         selected = recover(error=error)
     else:
-        selected = recover_negative(error=error)
+        selected = recover_negative(numerator=numerator, error=error)
     return selected
 
 

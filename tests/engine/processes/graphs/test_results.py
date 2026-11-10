@@ -527,7 +527,7 @@ def _placed_labels(node: t.Any) -> set[str]:
     ('inputs', 'expected', 'task_status', 'handler'),
     [
         pytest.param({'numerator': 1.0, 'denominator': 0.0}, 0.0, 410, 'recover', id='zero-denominator'),
-        pytest.param({'numerator': -1.0, 'denominator': 2.0}, -411.0, 411, 'recover_negative', id='negative-numerator'),
+        pytest.param({'numerator': -1.0, 'denominator': 2.0}, 1.0, 411, 'recover_negative', id='negative-numerator'),
         pytest.param({'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'read_ratio', id='ok'),
     ],
 )
