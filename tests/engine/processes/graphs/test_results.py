@@ -14,7 +14,7 @@ import typing as t
 import pytest
 
 from aiida.calculations.shell import ShellJob
-from aiida.common.exceptions import GraphLanguageError, GraphTypeCheckError, GraphValidationError
+from aiida.common.exceptions import GraphError, GraphLanguageError, GraphTypeCheckError, GraphValidationError
 from aiida.common.links import LinkType
 from aiida.common.loaders import get_object_loader
 from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, Result, task
@@ -544,3 +544,17 @@ def test_routed_signed_dispatches_per_member(
     assert fallible.exit_status == task_status
     placed = _placed_labels(node)
     assert handler in placed
+
+
+@pytest.mark.parametrize(
+    ('handle', 'inputs'),
+    [
+        (results.divide, {'numerator': 1.0, 'denominator': 2.0}),
+        (results.read_ratio, {'value': 1.0}),
+    ],
+    ids=['result-task', 'plain-task'],
+)
+def test_task_handle_call_raises(handle: t.Any, inputs: dict[str, t.Any]) -> None:
+    """A task handle declares work; execution goes through `engine.run`, `engine.run_get_node`, or a graph."""
+    with pytest.raises(GraphError, match='declares a task'):
+        handle(**inputs)

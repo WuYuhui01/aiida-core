@@ -56,6 +56,8 @@ __all__ = (
 
 
 R = t.TypeVar('R')
+_V = t.TypeVar('_V')
+_E = t.TypeVar('_E')
 
 
 def _typevar_solution(
@@ -303,7 +305,9 @@ class FunctionTaskHandle(t.Generic[P, R]):
         functools.update_wrapper(self, function, updated=())
 
     @t.overload
-    def __call__(self: FunctionTaskHandle[P, Result[t.Any, t.Any]], *args: P.args, **kwargs: P.kwargs) -> t.Any: ...
+    def __call__(
+        self: FunctionTaskHandle[P, Result[_V, _E]], *args: P.args, **kwargs: P.kwargs
+    ) -> tuple[_V, _E | None]: ...
 
     @t.overload
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
@@ -312,11 +316,16 @@ class FunctionTaskHandle(t.Generic[P, R]):
     def __call__(self: FunctionTaskHandle[P, R], *args: t.Any, after: t.Any = ..., **kwargs: t.Any) -> R: ...
 
     def __call__(self, *args: t.Any, after: t.Any = None, **kwargs: t.Any) -> t.Any:
-        """Run the task function and return its result."""
+        """Place the task call in a `@graph` body instead of running it."""
         if after is not None:
             msg = '`after` orders placements in a `@graph` body; it is not a task input.'
             raise GraphError(msg)
-        return self._function(*args, **kwargs)
+        name = getattr(self._function, '__name__', 'task')
+        msg = (
+            f'`{name}` declares a task for `@graph` bodies and never runs standalone; '
+            + 'launch it with `run` or `run_get_node`, or place the call in a graph.'
+        )
+        raise GraphError(msg)
 
     @property
     def process_class(self) -> type[TaskProcess]:
@@ -342,7 +351,7 @@ class FunctionTaskHandle(t.Generic[P, R]):
         return self._function.run(*args, **kwargs)
 
     def run_get_node(self, *args: P.args, **kwargs: P.kwargs) -> tuple[dict[str, t.Any] | None, CalcFunctionNode]:
-        """Run the task function locally and return its outputs with the node."""
+        """Run the task function through the runner; the engine calls this, users call `run`/`run_get_node`."""
         return self._function.run_get_node(*args, **kwargs)
 
     def run_get_pk(self, *args: P.args, **kwargs: P.kwargs) -> tuple[dict[str, t.Any] | None, int]:
@@ -350,7 +359,7 @@ class FunctionTaskHandle(t.Generic[P, R]):
         return self._function.run_get_pk(*args, **kwargs)
 
     def recreate_from(self, *args: t.Any, **kwargs: t.Any) -> t.Any:
-        """Recreate the task node from cached inputs through the decorated function."""
+        """Rebuild the task from a checkpoint; the persistence layer calls this, not users."""
         return self._function.recreate_from(*args, **kwargs)
 
 
