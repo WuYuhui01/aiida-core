@@ -348,7 +348,7 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
         ZERO_DENOMINATOR = ExitCode(410, 'The denominator is zero.')
 
     class InputErrors(ExitCodeEnum):
-        NEGATIVE_NUMERATOR = ExitCode(411, 'The numerator is negative.')
+        NEGATIVE_NUMERATOR = ExitCode(411, 'Negative numerator: {value}')
 
     @task
     def divide_signed(numerator: float, denominator: float) -> Result[float, DivisionErrors | InputErrors]:

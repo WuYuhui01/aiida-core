@@ -550,6 +550,54 @@ def test_ok_none_stores_no_arm() -> None:
 
 
 @pytest.mark.usefixtures('aiida_profile_clean')
+def test_formatted_error_keeps_message_on_child() -> None:
+    """A formatted `ExitCode` keeps its message on the child; the member stays canonical."""
+    outputs, node = run_get_node(results.divide_reported, numerator=-2.0, denominator=4.0)
+    assert node.exit_status == 411
+    assert node.exit_message == 'Negative numerator: -2.0'
+    assert outputs['error'].get_member() is InputErrors.NEGATIVE_NUMERATOR
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+def test_nullable_model_field_stores_nothing() -> None:
+    """A `None` model field stores nothing; the empty struct reads as an absent arm."""
+    outputs, node = run_get_node(results.divide_maybe, numerator=0.0, denominator=2.0)
+    assert node.is_finished_ok
+    assert dict(outputs) == {}
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    ('inputs', 'expected', 'present'),
+    [
+        pytest.param({'numerator': 1.0, 'denominator': 2.0}, 0.5, True, id='present'),
+        pytest.param({'numerator': 1.0, 'denominator': 0.0}, None, False, id='absent'),
+    ],
+)
+def test_graph_returns_only_present_arm(inputs: dict[str, t.Any], expected: float | None, present: bool) -> None:
+    """A graph output names the success arm; it is missing when the arm is absent."""
+    outputs, node = run_get_node(results.direct_arm, **inputs)
+    assert node.is_finished_ok
+    if present:
+        assert outputs['result'].value == expected
+    else:
+        assert 'result' not in outputs
+
+
+@pytest.mark.parametrize(
+    ('declaration', 'match'),
+    [
+        pytest.param(results.engine_clash_status, 'conflicts with an engine exit code', id='reserved-status'),
+        pytest.param(results.engine_clash_label, 'conflicts with an engine exit code', id='reserved-label'),
+    ],
+)
+def test_engine_exit_code_conflicts(declaration: t.Any, match: str) -> None:
+    """Error codes clashing with engine codes fail at decoration."""
+    with pytest.raises(GraphTypeCheckError, match=match):
+        task(declaration)
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
 def test_plain_port_model_task_stores_fields() -> None:
     """A plain task may return a structured type; each field stores as one output."""
     outputs, node = run_get_node(results.make_quotient, numerator=1.0, denominator=2.0)

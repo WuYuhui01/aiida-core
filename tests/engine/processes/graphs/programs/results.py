@@ -23,7 +23,7 @@ class DivisionErrors(ExitCodeEnum):
 class InputErrors(ExitCodeEnum):
     """A second error enum for union contracts."""
 
-    NEGATIVE_NUMERATOR = ExitCode(411, 'The numerator is negative.')
+    NEGATIVE_NUMERATOR = ExitCode(411, 'Negative numerator: {value}')
 
 
 @task
@@ -235,6 +235,37 @@ def quotient_ratio(numerator: float, denominator: float) -> float:
     return selected
 
 
+@task
+def divide_reported(numerator: float, denominator: float) -> Result[float, InputErrors]:
+    """Divide, formatting the declared message with the offending input."""
+    if numerator < 0:
+        return Err(InputErrors.NEGATIVE_NUMERATOR.value.format(value=str(numerator)))
+    return Ok(numerator / denominator)
+
+
+class MaybeQuotient(PortModel):
+    """A structured success with a nullable field."""
+
+    ratio: float | None = None
+
+
+@task
+def divide_maybe(numerator: float, denominator: float) -> Result[MaybeQuotient, DivisionErrors]:
+    """Divide, leaving the ratio empty when there is nothing to report."""
+    if denominator == 0:
+        return Err(DivisionErrors.ZERO_DENOMINATOR)
+    if numerator == 0:
+        return Ok(MaybeQuotient(ratio=None))
+    return Ok(MaybeQuotient(ratio=numerator / denominator))
+
+
+@graph
+def direct_arm(numerator: float, denominator: float) -> float:
+    """Return the success arm itself; the graph output is absent on failure."""
+    value, _error = divide(numerator=numerator, denominator=denominator)
+    return value
+
+
 def bare_result(value: int) -> Result:
     """Reject an unparameterized `Result` at decoration."""
     return value  # type: ignore[return-value] - misuse: bare Result
@@ -253,3 +284,25 @@ def structured_success(value: int) -> Result[Quotient, DivisionErrors]:
 def tuple_success(value: int) -> Result[tuple[int, int], DivisionErrors]:
     """Reject a tuple success type at decoration."""
     return Ok((value, value))
+
+
+class ClashStatus(ExitCodeEnum):
+    """An error enum reusing a reserved engine status."""
+
+    CUSTOM = ExitCode(1, 'reserved status')
+
+
+class ClashLabel(ExitCodeEnum):
+    """An error enum reusing a reserved engine label."""
+
+    ERROR_UNSPECIFIED = ExitCode(410, 'reserved label')
+
+
+def engine_clash_status() -> Result[int, ClashStatus]:
+    """Reject a declared status that collides with an engine exit status."""
+    raise AssertionError('building must not execute the body')
+
+
+def engine_clash_label() -> Result[int, ClashLabel]:
+    """Reject a declared label that collides with an engine exit code."""
+    raise AssertionError('building must not execute the body')
