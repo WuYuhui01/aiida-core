@@ -25,7 +25,7 @@ from aiida.common.loaders import get_object_loader
 from aiida.engine.processes.calcjobs import CalcJob
 from aiida.engine.processes.exit_code import ExitCode, ExitCodeEnum
 from aiida.engine.processes.functions import FunctionProcessBase, P, ProcessFunctionType, process_function
-from aiida.engine.processes.generic.ports import UNSPECIFIED
+from aiida.engine.processes.generic.ports import UNSPECIFIED, Port
 from aiida.engine.processes.graphs.ir import TaskIR, TypevarPositions, _reject_dynamic_inputs
 from aiida.engine.processes.graphs.results import Err, Ok, Result, _error_types, _result_contract
 from aiida.engine.processes.graphs.shapes import (
@@ -35,7 +35,12 @@ from aiida.engine.processes.graphs.shapes import (
     _forward_marker,
     _is_type_var,
 )
-from aiida.engine.processes.port_model import _field_from_annotation, _is_structured, _without_marks
+from aiida.engine.processes.port_model import (
+    _field_from_annotation,
+    _is_structured,
+    _namespace_value,
+    _without_marks,
+)
 from aiida.engine.processes.ports import PortNamespace, _infer_node_types
 from aiida.engine.processes.process import Process
 from aiida.engine.processes.process_spec import GraphProcessSpec, ProcessSpec
@@ -139,6 +144,9 @@ def _declare_output_ports(return_annotation: t.Any, spec: ProcessSpec) -> None:
     if t.get_origin(return_annotation) is tuple or return_annotation is tuple:
         msg = 'name multiple task outputs with a TypedDict instead of a tuple.'
         raise GraphTypeCheckError(msg)
+    if _is_structured(return_annotation):
+        spec.outputs_from(return_annotation)
+        return
     if t.get_origin(return_annotation) in (list, dict):
         origin = t.get_origin(return_annotation)
     else:
@@ -195,9 +203,10 @@ class TaskProcess(FunctionProcessBase):
             spec.exit_code(code.status, label, code.message, invalidates_cache=code.invalidates_cache)
         if t.get_origin(returned) is Result:
             if _is_structured(annotation):
-                msg = 'task output namespaces are not supported; declare leaf outputs instead.'
-                raise GraphTypeCheckError(msg)
-            spec.output('value', valid_type=_infer_node_types(annotation) or (Data,), required=False)
+                spec.outputs_from(t.cast(type, annotation), prefix='value.')
+                spec.outputs['value'].required = False
+            else:
+                spec.output('value', valid_type=_infer_node_types(annotation) or (Data,), required=False)
             spec.output('error', valid_type=EnumData, required=False)
             spec.outputs.dynamic = False
             cls._named_outputs = False
@@ -231,8 +240,42 @@ class TaskProcess(FunctionProcessBase):
         if result.value is None and success is not type(None) and type(None) not in t.get_args(success):
             msg = 'the successful Result type does not allow None.'
             raise GraphValidationError(msg)
+        if result.value is None:
+            # No value arm is stored; dependents read the absent arm as `None`.
+            return ExitCode()
+        if _is_structured(success):
+            self._store_value(self.spec().outputs['value'], result.value, 'value')
+            return ExitCode()
         self.out('value', result.value if isinstance(result.value, Data) else to_aiida_type(result.value))
         return ExitCode()
+
+    def _store_value(self, port: Port | PortNamespace, value: t.Any, path: str) -> None:
+        """Store one success arm under its dotted path, expanding namespaces."""
+        value = _namespace_value(value)
+        if isinstance(port, PortNamespace):
+            if value is None:
+                if port.required:
+                    msg = f'task value `{path}` is required but missing.'
+                    raise GraphValidationError(msg)
+                return
+            if not isinstance(value, Mapping):
+                msg = f'task value `{path}` must match its declared output namespace.'
+                raise GraphValidationError(msg)
+            for name, child in port.items():
+                if name not in value:
+                    if child.required:
+                        msg = f'task value is missing required output `{path}.{name}`.'
+                        raise GraphValidationError(msg)
+                    continue
+                self._store_value(child, value[name], f'{path}.{name}')
+            return
+        kinds = port.valid_type
+        kinds = (kinds,) if isinstance(kinds, type) else kinds or ()
+        if value is None and type(None) not in kinds:
+            msg = f'task value `{path}` does not allow None.'
+            raise GraphValidationError(msg)
+        if value is not None:
+            self.out(path, value if isinstance(value, Data) else to_aiida_type(value))
 
     def _prepare_error(self, result: Err[t.Any, t.Any], annotation: t.Any, codes: Mapping[str, ExitCode]) -> ExitCode:
         """Store the declared error member and exit with its code."""
@@ -257,21 +300,25 @@ class TaskProcess(FunctionProcessBase):
     def _out_result(self, result: t.Any) -> None:
         outputs = self.spec().outputs
         names = list(outputs)
-        if self._named_outputs and not isinstance(result, Mapping):
-            msg = f'task declares named outputs {names} but returned a single value; return a mapping instead.'
-            raise GraphValidationError(msg)
-        if isinstance(result, Mapping) and self._named_outputs:
-            missing = [name for name in names if name not in result]
+        value = _namespace_value(result)
+        if isinstance(value, Mapping) and (self._named_outputs or value is not result):
+            # A mapping return fills declared outputs by name; a model instance
+            # converts to one first, so structured types store field by field.
+            missing = [name for name in names if name not in value]
             if missing:
                 msg = f'task omitted declared outputs {missing}; return every declared output.'
                 raise GraphValidationError(msg)
-            extra = [name for name in result if name not in names]
+            extra = [name for name in value if name not in names]
             if extra:
                 msg = f'task returned undeclared outputs {extra}; return only declared outputs.'
                 raise GraphValidationError(msg)
-            values = tuple(result[name] for name in names)
-        else:
-            values = result if isinstance(result, tuple) else (result,)
+            for name in names:
+                self._store_value(outputs[name], value[name], name)
+            return
+        if self._named_outputs and not isinstance(value, Mapping):
+            msg = f'task declares named outputs {names} but returned a single value; return a mapping instead.'
+            raise GraphValidationError(msg)
+        values = result if isinstance(result, tuple) else (result,)
         if not names and result is None:
             return
         if len(values) != len(names):
@@ -561,13 +608,8 @@ def _check_task_contract(
     hints = t.get_type_hints(function, include_extras=True)
     returned = hints.get('return', inspect.Signature.empty)
     annotation, _ = _result_contract(returned)
-    if _is_structured(annotation):
-        msg = 'task output namespaces are not supported; declare leaf outputs instead.'
-        raise GraphTypeCheckError(msg)
-    if t.get_origin(returned) is Result and (
-        is_typeddict(annotation) or t.get_origin(annotation) is tuple or annotation is tuple
-    ):
-        msg = 'Result task outputs are single leaves for now; structured successes are not supported yet.'
+    if t.get_origin(returned) is Result and (t.get_origin(annotation) is tuple or annotation is tuple):
+        msg = 'name multiple task outputs with a TypedDict instead of a tuple.'
         raise GraphTypeCheckError(msg)
     if annotation is inspect.Signature.empty:
         msg = (
@@ -605,7 +647,7 @@ def _build_task(
     )
     spec = handle.process_class.spec()
     _reject_dynamic_inputs(spec.inputs)
-    if any(isinstance(port, PortNamespace) for port in spec.outputs.values()):
-        msg = 'tasks require static leaf outputs; declare leaf outputs instead.'
+    if spec.outputs.dynamic or any(isinstance(port, PortNamespace) and port.dynamic for port in spec.outputs.values()):
+        msg = 'tasks require static outputs; dynamic output namespaces stay out of graphs.'
         raise GraphTypeCheckError(msg)
     return handle

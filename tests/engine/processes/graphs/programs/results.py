@@ -8,8 +8,6 @@
 ###########################################################################
 """Divide/recover programs for declared task failures with a plain float arm."""
 
-import typing as t
-
 from aiida.engine import PortModel
 from aiida.engine.processes.exit_code import ExitCode, ExitCodeEnum
 from aiida.engine.processes.graphs.lowering import graph, task
@@ -187,16 +185,54 @@ def matched_constant(value: float) -> float:
     return selected
 
 
-class ModelSettings(PortModel):
-    """A structured success type, rejected: `Result` arms are single leaves for now."""
+class Quotient(PortModel):
+    """A structured success type, stored as a `value` namespace."""
 
-    count: int
+    ratio: float
 
 
-class NamedPair(t.TypedDict):
-    """A named success type, rejected: `Result` arms are single leaves for now."""
+@task
+def divide_quotient(numerator: float, denominator: float) -> Result[Quotient, DivisionErrors]:
+    """Divide, declaring a structured success instead of a leaf."""
+    if denominator == 0:
+        return Err(DivisionErrors.ZERO_DENOMINATOR)
+    return Ok(Quotient(ratio=numerator / denominator))
 
-    first: int
+
+@task
+def read_quotient(value: Quotient) -> float:
+    """Consume the structured success arm field by field."""
+    return value.ratio
+
+
+@task
+def make_quotient(numerator: float, denominator: float) -> Quotient:
+    """Build a structured value without declaring failures."""
+    return Quotient(ratio=numerator / denominator)
+
+
+@graph
+def quotient_double(numerator: float, denominator: float) -> float:
+    """Wire a structured task output field by field into a structured task input."""
+    produced = make_quotient(numerator=numerator, denominator=denominator)
+    return read_quotient(value={'ratio': produced})
+
+
+@task
+def noop() -> Result[None, DivisionErrors]:
+    """Validate without producing a value; the success arm stays empty."""
+    return Ok(None)
+
+
+@graph
+def quotient_ratio(numerator: float, denominator: float) -> float:
+    """Divide, recovering with zero on any declared failure."""
+    value, error = divide_quotient(numerator=numerator, denominator=denominator)
+    if error is not None:
+        selected = recover_zero(error=error)
+    else:
+        selected = read_quotient(value=value)
+    return selected
 
 
 def bare_result(value: int) -> Result:
@@ -209,14 +245,9 @@ def nested_result(value: int) -> Result[Result[int, DivisionErrors], DivisionErr
     return Ok(Ok(value))
 
 
-def structured_success(value: int) -> Result[ModelSettings, DivisionErrors]:
-    """Reject a structured success type at decoration."""
-    return Ok(ModelSettings(count=value))
-
-
-def named_success(value: int) -> Result[NamedPair, DivisionErrors]:
-    """Reject a named success type at decoration."""
-    return Ok({'first': value})
+def structured_success(value: int) -> Result[Quotient, DivisionErrors]:
+    """Accept a structured success type at decoration."""
+    return Ok(Quotient(ratio=value))
 
 
 def tuple_success(value: int) -> Result[tuple[int, int], DivisionErrors]:

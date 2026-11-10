@@ -192,9 +192,7 @@ def test_ok_err_carry_declared_values() -> None:
     [
         pytest.param(results.bare_result, 'requires a success type', id='bare-result'),
         pytest.param(results.nested_result, 'nested Result', id='nested-result'),
-        pytest.param(results.structured_success, 'output namespaces are not supported', id='port-model-success'),
-        pytest.param(results.named_success, 'single leaves', id='typed-dict-success'),
-        pytest.param(results.tuple_success, 'single leaves', id='tuple-success'),
+        pytest.param(results.tuple_success, 'name multiple task outputs', id='tuple-success'),
     ],
 )
 def test_result_declaration_rejected(declaration: t.Any, match: str) -> None:
@@ -381,6 +379,24 @@ def test_legacy_task_ir_without_exit_codes() -> None:
     'declaration, inputs, expected, task_status, task_arm, branch_child',
     [
         pytest.param(
+            results.quotient_ratio,
+            {'numerator': 1.0, 'denominator': 0.0},
+            0.0,
+            410,
+            'error',
+            'recover_zero',
+            id='quotient-zero-denominator',
+        ),
+        pytest.param(
+            results.quotient_ratio,
+            {'numerator': 1.0, 'denominator': 2.0},
+            0.5,
+            0,
+            'value',
+            'read_quotient',
+            id='quotient-ok',
+        ),
+        pytest.param(
             results.ratio,
             {'numerator': 1.0, 'denominator': 0.0},
             0.0,
@@ -523,6 +539,30 @@ def test_declared_failure_branches(
     assert branch.is_finished_ok
     placed = _placed_call_labels(branch)
     assert placed == ({branch_child} if branch_child is not None else set())
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+def test_ok_none_stores_no_arm() -> None:
+    """A `None` success stores nothing; the value arm is simply absent."""
+    outputs, node = run_get_node(results.noop)
+    assert node.is_finished_ok
+    assert dict(outputs) == {}
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+def test_plain_port_model_task_stores_fields() -> None:
+    """A plain task may return a structured type; each field stores as one output."""
+    outputs, node = run_get_node(results.make_quotient, numerator=1.0, denominator=2.0)
+    assert node.is_finished_ok
+    assert outputs['ratio'].value == 0.5
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+def test_plain_port_model_output_wires_into_input() -> None:
+    """A structured task output wires whole into a structured task input."""
+    outputs, node = run_get_node(results.quotient_double, numerator=1.0, denominator=2.0)
+    assert node.is_finished_ok
+    assert outputs['result'].value == 0.5
 
 
 def _placed_call_labels(node: t.Any) -> set[str]:

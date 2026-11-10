@@ -87,7 +87,11 @@ def _validate_edge(graph: GraphIR, edge: Dependency) -> None:
         return
     origin = _port_at(source.output_ports(), edge.source_port or '')
     ports = _input_ports_at(target, edge.target_port or '')
-    if origin is None or (isinstance(origin, PortNamespace) and not _accepts_region(target, edge.target_port)):
+    if origin is None or (
+        isinstance(origin, PortNamespace)
+        and not _accepts_region(target, edge.target_port)
+        and not any(isinstance(port, PortNamespace) for port in ports)
+    ):
         msg = f'dependency refers to unknown output `{edge.source}.{edge.source_port}`.'
         raise GraphTypeCheckError(msg)
     if not ports and not _accepts_condition(target, edge.target_port):

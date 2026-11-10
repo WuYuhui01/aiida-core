@@ -342,7 +342,7 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
 
 .. code:: python
 
-    from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, Result, graph, task
+    from aiida.engine import Err, ExitCode, ExitCodeEnum, Ok, PortModel, Result, graph, task
 
     class DivisionErrors(ExitCodeEnum):
         ZERO_DENOMINATOR = ExitCode(410, 'The denominator is zero.')
@@ -380,6 +380,25 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
 The call unpacks into ``(value, error)``; exactly one arm is present.
 The success arm passes the value through, and each declared member routes to its own handler task.
 Only the present arm creates data nodes; the absent arm reaches downstream inputs as ``None``.
+The success type may be structured: a ``PortModel`` declares a ``value`` namespace,
+stored field by field, and consuming tasks take the model as their input type:
+
+.. code:: python
+
+    class Quotient(PortModel):
+        ratio: float
+
+    @task
+    def divide_quotient(numerator: float, denominator: float) -> Result[Quotient, DivisionErrors]:
+        if denominator == 0:
+            return Err(DivisionErrors.ZERO_DENOMINATOR)
+        return Ok(Quotient(ratio=numerator / denominator))
+
+    @task
+    def read_quotient(value: Quotient) -> float:
+        return value.ratio
+
+Only static namespaces are supported; dynamic outputs stay out of graph tasks.
 Error inputs arrive as the enum member itself, typed by the annotation, so handlers
 match on members directly instead of reading storage nodes.
 Branches test the arms with ``is None`` and ``is not None``, or match one declared

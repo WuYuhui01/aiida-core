@@ -301,9 +301,9 @@ class TaskIR:
         ports = self.process_class.spec().outputs
         if self.declared_outputs.fields:
             ports = _close_dynamic(ports, self.declared_outputs, OutputPort, narrow=True)
-        if ports.dynamic or any(isinstance(port, PortNamespace) for port in ports.values()):
+        if ports.dynamic or any(isinstance(port, PortNamespace) and port.dynamic for port in ports.values()):
             msg = (
-                'graph tasks require static leaf outputs, not dynamic outputs or output namespaces; '
+                'graph tasks require static outputs, not dynamic outputs; '
                 'declare the outputs of a dynamic namespace with `task(..., outputs={...})`.'
             )
             raise GraphTypeCheckError(msg)
