@@ -62,6 +62,7 @@ def union_fallback(error: DivisionErrors | InputErrors) -> float:
     return -float(error.value.status)
 
 
+# rejected at runtime: task exit codes must be declared in a Result return annotation.
 @task
 def stray_ok(value: int) -> int:
     """Return `Ok` without a `Result` annotation."""
@@ -74,12 +75,14 @@ def legacy_exit(value: int) -> int:
     return ExitCode(500, 'Legacy failure.')  # type: ignore[return-value] - legacy: bare ExitCode
 
 
+# rejected at runtime: task errors must come from the declared exit-code enum.
 @task
 def undeclared_error(value: int) -> Result[int, DivisionErrors]:
     """Return an exit code outside the declared enum."""
     return Err(ExitCode(999, 'Not declared'))  # type: ignore[arg-type] - misuse: code outside the enum
 
 
+# rejected at runtime: Result tasks return Ok outputs or Err errors.
 @task
 def missing_result_wrapper(value: int) -> Result[int, DivisionErrors]:
     """Return bare outputs where a `Result` wrapper is required."""
@@ -152,6 +155,7 @@ def matched_negated(numerator: float, denominator: float) -> float:
     return selected
 
 
+# rejected at lowering: conditions test enum members with is, not ==.
 @graph
 def matched_equality(value: float) -> float:
     """Compare an error arm for equality; only `is` tests members."""
@@ -163,6 +167,7 @@ def matched_equality(value: float) -> float:
     return selected
 
 
+# rejected at lowering: conditions compare against declared enum members.
 @graph
 def matched_unknown_member(value: float) -> float:
     """Test an unknown name; the compared member must exist."""
@@ -174,6 +179,19 @@ def matched_unknown_member(value: float) -> float:
     return selected
 
 
+# rejected at lowering: compared members must exist on the enum.
+@graph
+def matched_member_typo(value: float) -> float:
+    """Test a misspelled member of a known enum; the member must exist."""
+    outcome, error = divide(numerator=value, denominator=0.0)
+    if error is DivisionErrors.ZERO_DENOMINATORR:
+        selected = recover_zero(error=error)
+    else:
+        selected = outcome
+    return selected
+
+
+# rejected at lowering: conditions test enum members, not constants.
 @graph
 def matched_constant(value: float) -> float:
     """Test a constant; only enum members can be matched."""
@@ -308,11 +326,13 @@ def direct_arm(numerator: float, denominator: float) -> float:
     return value
 
 
+# rejected at decoration: Result requires a success type.
 def bare_result(value: int) -> Result:
     """Reject an unparameterized `Result` at decoration."""
     return value  # type: ignore[return-value] - misuse: bare Result
 
 
+# rejected at decoration: task results do not nest.
 def nested_result(value: int) -> Result[Result[int, DivisionErrors], DivisionErrors]:
     """Reject a nested `Result` success type at decoration."""
     return Ok(Ok(value))
@@ -323,6 +343,7 @@ def structured_success(value: int) -> Result[Quotient, DivisionErrors]:
     return Ok(Quotient(ratio=value))
 
 
+# rejected at decoration: name multiple task outputs instead of a tuple.
 def tuple_success(value: int) -> Result[tuple[int, int], DivisionErrors]:
     """Reject a tuple success type at decoration."""
     return Ok((value, value))
@@ -340,11 +361,13 @@ class ClashLabel(ExitCodeEnum):
     ERROR_UNSPECIFIED = ExitCode(410, 'reserved label')
 
 
+# rejected at decoration: error codes must not clash with engine codes.
 def engine_clash_status() -> Result[int, ClashStatus]:
     """Reject a declared status that collides with an engine exit status."""
     raise AssertionError('building must not execute the body')
 
 
+# rejected at decoration: error codes must not clash with engine codes.
 def engine_clash_label() -> Result[int, ClashLabel]:
     """Reject a declared label that collides with an engine exit code."""
     raise AssertionError('building must not execute the body')
