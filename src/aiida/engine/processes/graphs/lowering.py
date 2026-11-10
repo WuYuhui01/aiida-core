@@ -832,7 +832,31 @@ def _match_member_test(
                 + f'{ast.unparse(other)!r} is not a known enum member; check the spelling instead'
             )
             _reject(state, node=other, reason=msg)
+        if (
+            isinstance(value, ast.Name)
+            and value.id in state.names
+            and isinstance(other, ast.Attribute)
+            and _known_name(state, other)
+            and _resolve_enum_member(state, other) is None
+            and _enum_base(state, other) is not None
+        ):
+            msg = (
+                'conditions test declared error members, so the compared name must be one; '
+                + f'{ast.unparse(other)!r} is not a member of its enum; check the spelling instead'
+            )
+            _reject(state, node=other, reason=msg)
     return None
+
+
+def _enum_base(state: _LoweringState, node: ast.Attribute) -> type | None:
+    """Return the enum class a dotted member reference starts from, or `None`."""
+    target: ast.expr = node.value
+    while isinstance(target, ast.Attribute):
+        target = target.value
+    if not isinstance(target, ast.Name) or target.id in state.names:
+        return None
+    resolved = state.definition.function.__globals__.get(target.id)
+    return resolved if isinstance(resolved, type) and issubclass(resolved, enum.Enum) else None
 
 
 def _known_name(state: _LoweringState, node: ast.expr) -> bool:

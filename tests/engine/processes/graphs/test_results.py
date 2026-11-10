@@ -356,6 +356,7 @@ def test_matched_condition_in_ir(declaration: t.Any, test: str) -> None:
     [
         pytest.param(results.matched_equality, 'put this check in a task', id='equality-test'),
         pytest.param(results.matched_unknown_member, 'not a known enum member', id='unknown-member'),
+        pytest.param(results.matched_member_typo, 'not a member of its enum', id='member-typo'),
         pytest.param(results.matched_constant, 'put this check in a task', id='constant-test'),
     ],
 )
