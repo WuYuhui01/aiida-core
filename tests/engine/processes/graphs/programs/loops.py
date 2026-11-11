@@ -81,12 +81,12 @@ def list_comprehension(values: list[int]) -> int:
 
 # rejected at lowering: loop state comes from enclosing names.
 @graph
-def tuple_targets_in_loop(value: int) -> int:
-    """Unpack fresh names in a loop; state must be bound before the loop."""
+def fresh_name_in_loop(value: int) -> int:
+    """Bind a fresh name in a loop; state must be bound before the loop."""
     total = add(x=value, y=1)
     while is_positive(value=total):
-        fresh_a, _ = add(x=total, y=1)
-        total = add(x=fresh_a, y=1)
+        fresh = add(x=total, y=1)
+        total = add(x=fresh, y=1)
     return total
 
 
