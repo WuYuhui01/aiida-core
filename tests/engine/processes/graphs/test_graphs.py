@@ -123,6 +123,17 @@ pytestmark = pytest.mark.presto
         pytest.param(ports.single_named_mapping, {'value': 2}, {'only': 2}, id='single-named-mapping'),
         pytest.param(branches.external_choice, {'value': 2, 'condition': True}, {'result': 3}, id='external-true'),
         pytest.param(branches.external_choice, {'value': 2, 'condition': False}, {'result': 4}, id='external-false'),
+        pytest.param(
+            branches.nested_plain, {'value': 2, 'flag': True, 'flip': True}, {'result': 11}, id='nested-plain-both'
+        ),
+        pytest.param(
+            branches.nested_plain, {'value': 2, 'flag': True, 'flip': False}, {'result': 3}, id='nested-plain-inner'
+        ),
+        pytest.param(
+            branches.nested_plain, {'value': 2, 'flag': False, 'flip': True}, {'result': 4}, id='nested-plain-outer'
+        ),
+        pytest.param(call_programs.forward_plain, {'value': 2}, {'result': 11}, id='forward-namespace'),
+        pytest.param(call_programs.selected_plain, {'value': 2}, {'result': 11}, id='select-fields'),
         pytest.param(branches.namespaced_choice, {'value': 2, 'condition': True}, {'result': 3}, id='namespaced-true'),
         pytest.param(
             branches.namespaced_choice, {'value': 2, 'condition': False}, {'result': 4}, id='namespaced-false'

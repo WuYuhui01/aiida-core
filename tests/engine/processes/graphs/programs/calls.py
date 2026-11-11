@@ -16,7 +16,9 @@ from tests.engine.processes.graphs.programs import tasks
 from tests.engine.processes.graphs.programs.port_models import AddBundle, ConfigBundle, PartialBundle
 from tests.engine.processes.graphs.programs.tasks import (
     add,
+    arithmetic_pair,
     collision_add,
+    combine_total,
     decrement,
     fail_always,
     generic_add,
@@ -318,3 +320,17 @@ AddInputs = t.Annotated[t.Any, Forward(add)]
 def forwarded_alias(bundle: AddInputs) -> int:
     """Mirror a task's inputs through a module-level alias."""
     return add(**bundle)
+
+
+@graph
+def forward_plain(value: int) -> int:
+    """Wire a whole task outputs namespace into a whole task input namespace."""
+    produced = arithmetic_pair(x=value, y=3)
+    return combine_total(data=produced)
+
+
+@graph
+def selected_plain(value: int) -> int:
+    """Bind a whole multi-output call, then select fields from it."""
+    pair = arithmetic_pair(x=value, y=3)
+    return add(x=pair.sum, y=pair.product)

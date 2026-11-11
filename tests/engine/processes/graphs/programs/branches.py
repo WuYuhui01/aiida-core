@@ -12,7 +12,9 @@ from aiida.engine.processes.graphs.lowering import graph
 from tests.engine.processes.graphs.programs import tasks as task_module
 from tests.engine.processes.graphs.programs.tasks import (
     add,
+    arithmetic_pair,
     branch_2,
+    combine_total,
     decrement,
     half,
     is_positive,
@@ -285,3 +287,17 @@ def alias_mismatched(value: int, label: str, flag: bool) -> int:
     else:
         chosen = label
     return chosen
+
+
+@graph
+def nested_plain(value: int, flag: bool, flip: bool) -> int:
+    """Branch inside a branch arm; the inner dispatch stays in the body."""
+    produced = arithmetic_pair(x=value, y=3)
+    if flag:
+        if flip:
+            selected = combine_total(data=produced)
+        else:
+            selected = add(x=value, y=1)
+    else:
+        selected = add(x=value, y=2)
+    return selected
