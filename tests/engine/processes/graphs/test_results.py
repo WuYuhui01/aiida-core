@@ -277,6 +277,22 @@ def test_error_member_feeds_recovery_input() -> None:
 
 
 @pytest.mark.usefixtures('aiida_profile_clean')
+def test_branch_children_carry_placement_labels() -> None:
+    """Branch control children show their placement name instead of a bare class name."""
+    _, node = run_get_node(results.matched_signed, numerator=1.0, denominator=0.0)
+    assert node.is_finished_ok
+    labels: set[str] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        for child in current.base.links.get_outgoing(link_type=LinkType.CALL_WORK).nested().values():
+            labels.add(child.process_label)
+            stack.append(child)
+    assert 'branch_2' in labels
+    assert 'GraphProcess' not in labels
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
 @pytest.mark.parametrize(
     'declaration, inputs, match',
     [
