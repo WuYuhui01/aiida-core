@@ -90,7 +90,7 @@ def missing_result_wrapper(value: int) -> Result[int, DivisionErrors]:
 
 
 @graph
-def ratio(numerator: float, denominator: float) -> float:
+def ratio_signed(numerator: float, denominator: float) -> float:
     """Divide, routing each declared failure to its own handler."""
     value, error = divide_signed(numerator=numerator, denominator=denominator)
     if error is None:
@@ -114,7 +114,7 @@ def ratio_is_none(numerator: float, denominator: float) -> float:
 
 
 @graph
-def signed_ratio(numerator: float, denominator: float) -> float:
+def ratio_fallback(numerator: float, denominator: float) -> float:
     """Divide, recovering failures from either error enum."""
     value, error = divide_signed(numerator=numerator, denominator=denominator)
     if error is not None:

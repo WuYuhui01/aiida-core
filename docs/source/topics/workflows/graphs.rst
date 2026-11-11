@@ -367,7 +367,7 @@ The body returns ``Ok`` with the outputs, or ``Err`` with the declared member:
         return abs(numerator)  # fall back to the magnitude
 
     @graph
-    def ratio(numerator: float, denominator: float) -> float:
+    def ratio_signed(numerator: float, denominator: float) -> float:
         value, error = divide_signed(numerator=numerator, denominator=denominator)
         if error is None:
             selected = value

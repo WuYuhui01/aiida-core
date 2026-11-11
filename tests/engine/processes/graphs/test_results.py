@@ -302,14 +302,14 @@ def test_legacy_exit_code_preserved() -> None:
     'declaration, handle, labels',
     [
         pytest.param(
-            results.ratio,
+            results.ratio_signed,
             results.divide_signed,
             {'DivisionErrors_ZERO_DENOMINATOR', 'InputErrors_NEGATIVE_NUMERATOR'},
             id='ratio',
         ),
         pytest.param(results.ratio_is_none, results.divide, {'ZERO_DENOMINATOR'}, id='ratio-is-none'),
         pytest.param(
-            results.signed_ratio,
+            results.ratio_fallback,
             results.divide_signed,
             {'DivisionErrors_ZERO_DENOMINATOR', 'InputErrors_NEGATIVE_NUMERATOR'},
             id='signed-ratio',
@@ -368,7 +368,7 @@ def test_matched_condition_rejected(declaration: t.Any, match: str) -> None:
 
 def test_legacy_task_ir_without_exit_codes() -> None:
     """Task declarations stored before exit codes default to no declared failures."""
-    divide = results.ratio.build().task('divide_signed')
+    divide = results.ratio_signed.build().task('divide_signed')
     assert isinstance(divide, ProcessTask)
     data = divide.spec.to_dict()
     data.pop('exit_codes')
@@ -398,7 +398,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             id='quotient-ok',
         ),
         pytest.param(
-            results.ratio,
+            results.ratio_signed,
             {'numerator': 1.0, 'denominator': 0.0},
             0.0,
             410,
@@ -407,7 +407,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             id='ratio-zero-denominator',
         ),
         pytest.param(
-            results.ratio,
+            results.ratio_signed,
             {'numerator': -1.0, 'denominator': 2.0},
             1.0,
             411,
@@ -415,7 +415,9 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             'recover_negative',
             id='ratio-negative-numerator',
         ),
-        pytest.param(results.ratio, {'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'value', None, id='ratio-ok'),
+        pytest.param(
+            results.ratio_signed, {'numerator': 1.0, 'denominator': 2.0}, 0.5, 0, 'value', None, id='ratio-ok'
+        ),
         pytest.param(
             results.ratio_is_none,
             {'numerator': 1.0, 'denominator': 0.0},
@@ -435,7 +437,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             id='is-none-ok',
         ),
         pytest.param(
-            results.signed_ratio,
+            results.ratio_fallback,
             {'numerator': 1.0, 'denominator': 0.0},
             -410.0,
             410,
@@ -444,7 +446,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             id='signed-zero-denominator',
         ),
         pytest.param(
-            results.signed_ratio,
+            results.ratio_fallback,
             {'numerator': -1.0, 'denominator': 2.0},
             -411.0,
             411,
@@ -453,7 +455,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
             id='signed-negative-numerator',
         ),
         pytest.param(
-            results.signed_ratio,
+            results.ratio_fallback,
             {'numerator': 1.0, 'denominator': 2.0},
             0.5,
             0,
