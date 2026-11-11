@@ -99,12 +99,14 @@ def _close_dynamic(
     path: str = '',
     *,
     narrow: bool = False,
+    required: bool = True,
 ) -> PortNamespace:
     """Return a copy of ``ports`` whose dynamic namespaces hold exactly the declared fields.
 
     The class spec is shared by every placement, so declared ports go into a copy: a namespace
     receiving new names becomes static, and every other port is kept as is. Solved generic
-    outputs narrow matching static leaves instead, when ``narrow`` holds.
+    outputs narrow matching static leaves instead, when ``narrow`` holds. Added ports take
+    ``required``, so mapped error arms can travel as absent outputs like `Result` arms do.
     """
     closed = PortNamespace(ports.name, help=ports.help, required=ports.required)
     for name, child in ports.items():
@@ -114,7 +116,7 @@ def _close_dynamic(
         location = f'{path}.{name}' if path else name
         existing = ports.get(name)
         if isinstance(existing, PortNamespace) and isinstance(shape, NamespaceShape):
-            closed[name] = _close_dynamic(existing, shape, port_class, location)
+            closed[name] = _close_dynamic(existing, shape, port_class, location, required=required)
             continue
         if existing is not None:
             narrowed = _narrowed_port(existing, shape) if narrow else None
@@ -130,13 +132,13 @@ def _close_dynamic(
         added = True
         if isinstance(shape, NamespaceShape):
             nested = PortNamespace(name, dynamic=True, valid_type=ports.valid_type)
-            closed[name] = _close_dynamic(nested, shape, port_class, location)
+            closed[name] = _close_dynamic(nested, shape, port_class, location, required=required)
             continue
         allowed = ports.valid_type
         if allowed is not None and not all(issubclass(kind, allowed) for kind in shape.types or ()):
             msg = f'`{location}` declares types outside those its dynamic namespace accepts: {allowed}.'
             raise GraphTypeCheckError(msg)
-        closed[name] = port_class(name, valid_type=shape.types, required=True)
+        closed[name] = port_class(name, valid_type=shape.types, required=required)
     if ports.dynamic and not added:
         closed.dynamic = True
         closed.valid_type = ports.valid_type
@@ -300,7 +302,10 @@ class TaskIR:
         """
         ports = self.process_class.spec().outputs
         if self.declared_outputs.fields:
-            ports = _close_dynamic(ports, self.declared_outputs, OutputPort, narrow=True)
+            # A mapped failure leaves its success arms absent; like `Result` arms they travel
+            # as `None`, so the contract keeps them optional. Presence on the success path
+            # stays enforced by the runtime missing-output check, not by the port contract.
+            ports = _close_dynamic(ports, self.declared_outputs, OutputPort, narrow=True, required=not self.error_enums)
         if ports.dynamic or any(isinstance(port, PortNamespace) and port.dynamic for port in ports.values()):
             msg = (
                 'graph tasks require static outputs, not dynamic outputs; '

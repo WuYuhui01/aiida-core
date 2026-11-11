@@ -222,10 +222,26 @@ class GraphRun:
         value: ExitCode = error.get_member().value
         return value in task.spec.exit_codes.values() and value.status == node.exit_status
 
+    def _is_mapped_failure(self, name: str) -> bool:
+        """Return whether the latest instance of a finished task failed with a declared error mapping.
+
+        The success arms of such a failure are absent by design, like the missing
+        arm of a `Result` task, so they read as `None` downstream.
+        """
+        node = self._produced_by(name)
+        assert node.pk is not None
+        return node.is_failed and self._has_result(name, node.pk)
+
     def missing_outputs(self, name: str) -> list[str]:
-        """Return the declared outputs the latest instance of a finished task did not produce."""
+        """Return the declared outputs the latest instance of a finished task did not produce.
+
+        A mapped failure carries its outcome on the `error` arm; its absent
+        success arms are not missing outputs.
+        """
         task = self.graph.task(name)
         if not isinstance(task, ProcessTask) or not task.spec.declared_outputs.fields:
+            return []
+        if self._is_mapped_failure(name):
             return []
         return _missing_declared_outputs(task.spec.declared_outputs, self._produced_by(name))
 
@@ -367,7 +383,10 @@ class GraphRun:
         if len(runs) >= task.max_iterations:
             msg = f'loop `{task.name}` exceeded {task.max_iterations} iterations; check that its condition terminates.'
             raise GraphMaxIterationsError(msg)
-        self._begin_iteration(task, {**self._inputs_for(task), **outputs}, step)
+        # An iteration stores only the arms it produces; rebind every other body output to `None`
+        # so the next iteration cannot read stale state from before the loop.
+        absent = {name: None for name in task.body.outputs if name not in outputs}
+        self._begin_iteration(task, {**self._inputs_for(task), **absent, **outputs}, step)
 
     def _begin_iteration(self, task: LoopControl, inputs: dict[str, t.Any], step: _Step) -> None:
         """Dispatch one numbered loop iteration over the loop body."""
@@ -406,7 +425,9 @@ class GraphRun:
         """Return the value one task produced at a path, or `None` for an absent `Result` arm.
 
         Process tasks declare no error output, so a mapped failure synthesizes
-        its member from the child exit status instead of reading a link.
+        its member from the child exit status instead of reading a link. Its
+        absent success arms read as `None`, like the missing arm of a `Result`
+        task, so region namespaces fill and direct reads resolve.
         """
         node = self._produced_by(name)
         task = self.graph.task(name)
@@ -416,6 +437,17 @@ class GraphRun:
         values = {key: outputs[key] for key in ports if key in outputs}
         if isinstance(task, ProcessTask) and task.spec.error_enums and 'error' not in values and node.is_failed:
             values['error'] = _error_member(task, node)
+        if (
+            isinstance(task, ProcessTask)
+            and node.is_failed
+            and task.spec.error_enums
+            and task.spec.declared_outputs.fields
+            and node.pk is not None
+            and self._has_result(name, node.pk)
+        ):
+            for field, _ in task.spec.declared_outputs.fields:
+                if field not in values:
+                    values[field] = None
         return _value_at(values, ports, path)
 
     def _produced_by(self, name: str) -> Node:

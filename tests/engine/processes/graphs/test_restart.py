@@ -50,6 +50,14 @@ def test_restartable_fails_without_attempts(structure: StructureData) -> None:
 
 
 @pytest.mark.usefixtures('aiida_profile_clean')
+def test_absent_arm_resets_between_iterations() -> None:
+    """An iteration leaving no value arm reads as `None`, not the previous value."""
+    outputs, node = run_get_node(restart.absent_arm_resets)
+    assert node.is_finished_ok
+    assert outputs['result'].value == 'absent'
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
 def test_report_unhandled_recovers_value() -> None:
     """A recovered value exits cleanly under the shared vocabulary."""
     outputs, node = run_get_node(restart.report_unhandled, value=1.5, error=None)

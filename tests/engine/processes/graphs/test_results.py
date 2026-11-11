@@ -22,7 +22,7 @@ from aiida.engine.launch import run_get_node
 from aiida.engine.processes.graphs.ir import BranchControl, GraphIR, ProcessTask, TaskIR
 from aiida.engine.processes.graphs.results import RestartErrors, _error_types, _result_contract
 from aiida.orm import SinglefileData
-from tests.engine.processes.graphs.programs import results, shelljobs
+from tests.engine.processes.graphs.programs import results, shelljobs, workchains
 from tests.engine.processes.graphs.programs.results import DivisionErrors, InputErrors
 
 pytestmark = pytest.mark.presto
@@ -668,3 +668,33 @@ def test_task_handle_call_raises(handle: t.Any, inputs: dict[str, t.Any]) -> Non
     """A task handle declares work; execution goes through `engine.run`, `engine.run_get_node`, or a graph."""
     with pytest.raises(GraphError, match='declares a task'):
         handle(**inputs)
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    'fail, expected',
+    [
+        pytest.param(True, 'recovered from 410', id='mapped-failure'),
+        pytest.param(False, 'result:1.0', id='success'),
+    ],
+)
+def test_workchain_mapped_failure_recovers_without_outputs(fail: bool, expected: str) -> None:
+    """A mapped chain failure without declared outputs still counts as completed."""
+    outputs, node = run_get_node(workchains.recover_unproduced, fail=fail)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    'fail, expected',
+    [
+        pytest.param(True, 'recovered from 410', id='mapped-failure'),
+        pytest.param(False, 'result:1.0', id='success'),
+    ],
+)
+def test_workchain_absent_success_arm_reads_none(fail: bool, expected: str) -> None:
+    """An unconditionally read success arm arrives as `None` after a mapped failure."""
+    outputs, node = run_get_node(workchains.read_absent_arm, fail=fail)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected

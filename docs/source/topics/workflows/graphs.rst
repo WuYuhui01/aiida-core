@@ -406,9 +406,10 @@ member with ``is`` and ``is not``, such as ``if error is DivisionErrors.ZERO_DEN
 An unknown compared name fails when the graph is built. A branch nests inside an error arm,
 so each declared member routes to its own handler task with the dispatch visible in the body.
 
-A declared failure sets the child's exit status but counts as completed, so dependents still run.
-Undeclared failures, exceptions, and missing outputs keep the previous behavior: dependents never start
-and the graph exits with ``ERROR_TASK_FAILED``.
+A declared failure sets the child's exit status but counts as completed, so dependents still run;
+its absent success arms read as ``None`` downstream. Undeclared failures, exceptions, and outputs
+missing from a completed task keep the previous behavior: dependents never start and the graph exits
+with ``ERROR_TASK_FAILED``.
 A task without ``Result`` keeps its behavior too: returning an ``ExitCode`` exits the child with that status.
 ``Err`` accepts a member or its ``ExitCode`` value; anything else fails the task itself,
 as do bare returns from a ``Result`` task.
