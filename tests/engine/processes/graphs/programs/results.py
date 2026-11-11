@@ -70,9 +70,9 @@ def stray_ok(value: int) -> int:
 
 
 @task
-def legacy_exit(value: int) -> int:
+def legacy_exit(value: int) -> ExitCode:
     """Return a bare `ExitCode`, preserved from before `Result` existed."""
-    return ExitCode(500, 'Legacy failure.')  # type: ignore[return-value] - legacy: bare ExitCode
+    return ExitCode(500, 'Legacy failure.')
 
 
 # rejected at runtime: task errors must come from the declared exit-code enum.
