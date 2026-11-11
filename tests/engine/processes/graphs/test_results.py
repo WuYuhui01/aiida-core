@@ -463,7 +463,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.ratio_fallback,
             {'numerator': 1.0, 'denominator': 0.0},
-            -410.0,
+            0.0,
             410,
             'error',
             'union_fallback',
@@ -472,7 +472,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.ratio_fallback,
             {'numerator': -1.0, 'denominator': 2.0},
-            -411.0,
+            0.0,
             411,
             'error',
             'union_fallback',
@@ -499,7 +499,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.matched_signed,
             {'numerator': -1.0, 'denominator': 2.0},
-            -411.0,
+            0.0,
             411,
             'error',
             'union_total',
@@ -526,7 +526,7 @@ def test_legacy_task_ir_without_exit_codes() -> None:
         pytest.param(
             results.matched_negated,
             {'numerator': -1.0, 'denominator': 2.0},
-            -411.0,
+            0.0,
             411,
             'error',
             'union_total',

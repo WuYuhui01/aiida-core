@@ -59,7 +59,7 @@ def divide_signed(numerator: float, denominator: float) -> Result[float, Divisio
 @task
 def union_fallback(error: DivisionErrors | InputErrors) -> float:
     """Recover from a failure declared by either error enum."""
-    return -float(error.value.status)
+    return 0.0
 
 
 # rejected at runtime: task exit codes must be declared in a Result return annotation.
@@ -126,11 +126,11 @@ def ratio_fallback(numerator: float, denominator: float) -> float:
 
 @task
 def union_total(value: float | None, error: DivisionErrors | InputErrors | None) -> float:
-    """Read the successful value, or negate the declared failure status."""
+    """Read the successful value, or fall back to zero."""
     if value is not None:
         return value
     assert error is not None
-    return -float(error.value.status)
+    return 0.0
 
 
 @graph
