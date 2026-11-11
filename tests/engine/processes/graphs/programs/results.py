@@ -278,6 +278,17 @@ def selected_ratio(numerator: float, denominator: float) -> float:
     return selected
 
 
+@graph
+def field_ratio(numerator: float, denominator: float) -> float:
+    """Select a structured field without a call on one arm; recover on the other."""
+    outcome = divide_quotient(numerator=numerator, denominator=denominator)
+    if outcome.error is None:
+        selected = outcome.value.ratio
+    else:
+        selected = recover_zero(error=outcome.error)
+    return selected
+
+
 @task
 def noop() -> Result[None, DivisionErrors]:
     """Validate without producing a value; the success arm stays empty."""

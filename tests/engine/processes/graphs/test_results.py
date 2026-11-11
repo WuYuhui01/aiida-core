@@ -702,6 +702,21 @@ def test_workchain_absent_success_arm_reads_none(fail: bool, expected: str) -> N
 
 @pytest.mark.usefixtures('aiida_profile_clean')
 @pytest.mark.parametrize(
+    'numerator, denominator, expected',
+    [
+        pytest.param(1.0, 2.0, 0.5, id='selected-field'),
+        pytest.param(1.0, 0.0, 0.0, id='recovered-field'),
+    ],
+)
+def test_field_selection_arm_merges(numerator: float, denominator: float, expected: float) -> None:
+    """A field-select arm merges with a recovery call arm on one wire."""
+    outputs, node = run_get_node(results.field_ratio, numerator=numerator, denominator=denominator)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
     'fail, expected',
     [
         pytest.param(True, 'recovered from 410', id='mapped-failure'),

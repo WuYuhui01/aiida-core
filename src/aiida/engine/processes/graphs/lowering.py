@@ -679,6 +679,20 @@ def _lower_arm(state: _LoweringState, statements: list[ast.stmt]) -> _Arm:
         child.names[name] = _Reference(None, port=outer.port, shape=outer.shape)
         body = _lower_region_body(child, {outer.port: _Reference(None, port=statement.value.id, shape=outer.shape)})
         return _Arm(name, child=child, body=body, alias=True)
+    elif (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and isinstance(statement.value, ast.Attribute)
+    ):
+        # A field selection passes one output through without work, like a plain name does;
+        # expose it under the assigned name so the arms merge on one wire.
+        name = statement.targets[0].id
+        reference = _lower_value(child, statement.value)
+        assert isinstance(reference, _Reference)
+        child.names[name] = reference
+        body = _lower_region_body(child, {name: reference})
+        return _Arm(name, child=child, body=body, alias=True)
     elif isinstance(statement, ast.While):
         _lower_loop(child, statement=statement)
         rebound = [name for name in _body_state_names(statement.body) if name in state.names]
