@@ -71,7 +71,7 @@ def test_optional_output_round_trips_through_serialization() -> None:
 def test_region_unknown_name_points_at_use() -> None:
     """An unknown name in a loop body is reported at its use, not the body start."""
     with pytest.raises(GraphLanguageError, match='zz_missing_value') as caught:
-        loops.unknown_after_unpack_in_loop.build()
+        loops.unknown_name_in_loop.build()
     assert 'total = add(x=total, y=zz_missing_value)' in str(caught.value)
 
 

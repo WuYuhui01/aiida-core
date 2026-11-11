@@ -92,11 +92,10 @@ def fresh_name_in_loop(value: int) -> int:
 
 # rejected at lowering: a branch or loop body only sees names defined around it.
 @graph
-def unknown_after_unpack_in_loop(value: int) -> int:
-    """Read an unknown name after unpacking in a loop."""
+def unknown_name_in_loop(value: int) -> int:
+    """Read an unknown name in a loop body; only enclosing names are visible."""
     total = add(x=value, y=1)
     while is_positive(value=total):
-        total, _ = add(x=total, y=1)
         total = add(x=total, y=zz_missing_value)  # noqa: F821 - the undefined name is rejected
     return total
 
