@@ -255,4 +255,11 @@ class GraphProcess(Process):
 
     @override
     def _build_process_label(self) -> str:
+        # Control-flow children travel without their own declaration, so they
+        # take the placement name the parent used when dispatching them. Only
+        # called processes have one; top-level graphs keep their identifier.
+        if self.get_parent_calc() is not None:
+            label = (self.inputs.get('metadata', {}) or {}).get('call_link_label')
+            if isinstance(label, str) and label:
+                return label
         return self._graph.identifier or super()._build_process_label()
