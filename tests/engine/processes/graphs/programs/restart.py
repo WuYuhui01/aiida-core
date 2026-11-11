@@ -125,3 +125,95 @@ def restartable(structure: StructureData, max_attempts: int) -> float:
         value, error = run_step(structure=structure, attempt=attempt)
         retry = should_restart(error=error, attempt=attempt, max_attempts=max_attempts)
     return ensure(value=value, error=error)
+
+
+class MockWorkflowErrors(ExitCodeEnum):
+    """Workflow failures of the mock calculation."""
+
+    KNOWN_UNRECOVERABLE_FAILURE = ExitCode(310, 'The calculation failed with a known unrecoverable error.')
+
+
+class MockScientificCodeErrors(ExitCodeEnum):
+    """Calculation failures the handlers match."""
+
+    OUT_OF_WALLTIME = ExitCode(400, 'The calculation stopped prematurely because it ran out of walltime.')
+    COMPUTING_CHOLESKY = ExitCode(462, 'The code failed during the cholesky factorization.')
+    DIAGONALIZATION_TOO_MANY_BANDS_NOT_CONVERGED = ExitCode(
+        463, 'Too many bands failed to converge during the diagonalization.'
+    )
+
+
+CalculationFailure = MockWorkflowErrors | MockScientificCodeErrors | RestartErrors
+"""Every failure the chain knows, as one union."""
+
+
+@task
+def mock_step(attempt: int) -> Result[float, MockScientificCodeErrors]:
+    """Fail twice with handled codes, then succeed."""
+    if attempt == 0:
+        return Err(MockScientificCodeErrors.OUT_OF_WALLTIME)
+    if attempt == 1:
+        return Err(MockScientificCodeErrors.COMPUTING_CHOLESKY)
+    return Ok(1.0)
+
+
+@task
+def handle_walltime(error: CalculationFailure | None, parameters: dict) -> dict:
+    """Claim walltime failures, passing anything else through unchanged."""
+    if error is not MockScientificCodeErrors.OUT_OF_WALLTIME:
+        return parameters
+    updated = dict(parameters)
+    updated['restart_mode'] = 'restart'
+    return updated
+
+
+@task
+def handle_diagonalization(error: CalculationFailure | None, parameters: dict) -> dict:
+    """Claim diagonalization failures, passing anything else through unchanged."""
+    if error not in (
+        MockScientificCodeErrors.COMPUTING_CHOLESKY,
+        MockScientificCodeErrors.DIAGONALIZATION_TOO_MANY_BANDS_NOT_CONVERGED,
+    ):
+        return parameters
+    tried = parameters.get('tried', [])
+    remaining = [value for value in ['david', 'cg'] if value not in tried]
+    updated = dict(parameters)
+    updated['diagonalization'] = remaining[-1]
+    updated['tried'] = [*tried, remaining[-1]]
+    return updated
+
+
+@graph
+def fix_chain(error: CalculationFailure | None, parameters: dict) -> dict:
+    """Run the handler chain in priority order; unclaimed errors pass through."""
+    wall_fixed = handle_walltime(error=error, parameters=parameters)
+    return handle_diagonalization(error=error, parameters=wall_fixed)
+
+
+@task
+def should_retry(error: CalculationFailure | None, attempt: int, max_attempts: int) -> bool:
+    """Retry while a declared failure remains and attempts do."""
+    return error is not None and attempt < max_attempts
+
+
+@task
+def ensure_chain(value: float | None, error: CalculationFailure | None) -> float:
+    """Read the recovered value, failing loudly when none remains."""
+    if error is not None or value is None:
+        raise ValueError('the step never succeeded.')
+    return value
+
+
+@graph
+def chained_retry(parameters: dict, max_attempts: int) -> float:
+    """Retry with the handler chain until the step succeeds."""
+    attempt = zero()
+    value, error = mock_step(attempt=attempt)
+    fixed = fix_chain(error=error, parameters=parameters)
+    retry = should_retry(error=error, attempt=attempt, max_attempts=max_attempts)
+    while retry:
+        attempt = step(attempt=attempt)
+        value, error = mock_step(attempt=attempt)
+        fixed = fix_chain(error=error, parameters=fixed)
+        retry = should_retry(error=error, attempt=attempt, max_attempts=max_attempts)
+    return ensure_chain(value=value, error=error)
