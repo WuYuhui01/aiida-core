@@ -99,14 +99,12 @@ def _close_dynamic(
     path: str = '',
     *,
     narrow: bool = False,
-    required: bool = True,
 ) -> PortNamespace:
     """Return a copy of ``ports`` whose dynamic namespaces hold exactly the declared fields.
 
     The class spec is shared by every placement, so declared ports go into a copy: a namespace
     receiving new names becomes static, and every other port is kept as is. Solved generic
-    outputs narrow matching static leaves instead, when ``narrow`` holds. Added ports take
-    ``required``, so mapped error arms can travel as absent outputs like `Result` arms do.
+    outputs narrow matching static leaves instead, when ``narrow`` holds.
     """
     closed = PortNamespace(ports.name, help=ports.help, required=ports.required)
     for name, child in ports.items():
@@ -116,7 +114,7 @@ def _close_dynamic(
         location = f'{path}.{name}' if path else name
         existing = ports.get(name)
         if isinstance(existing, PortNamespace) and isinstance(shape, NamespaceShape):
-            closed[name] = _close_dynamic(existing, shape, port_class, location, required=required)
+            closed[name] = _close_dynamic(existing, shape, port_class, location)
             continue
         if existing is not None:
             narrowed = _narrowed_port(existing, shape) if narrow else None
@@ -132,13 +130,13 @@ def _close_dynamic(
         added = True
         if isinstance(shape, NamespaceShape):
             nested = PortNamespace(name, dynamic=True, valid_type=ports.valid_type)
-            closed[name] = _close_dynamic(nested, shape, port_class, location, required=required)
+            closed[name] = _close_dynamic(nested, shape, port_class, location)
             continue
         allowed = ports.valid_type
         if allowed is not None and not all(issubclass(kind, allowed) for kind in shape.types or ()):
             msg = f'`{location}` declares types outside those its dynamic namespace accepts: {allowed}.'
             raise GraphTypeCheckError(msg)
-        closed[name] = port_class(name, valid_type=shape.types, required=required)
+        closed[name] = port_class(name, valid_type=shape.types, required=True)
     if ports.dynamic and not added:
         closed.dynamic = True
         closed.valid_type = ports.valid_type
@@ -302,10 +300,7 @@ class TaskIR:
         """
         ports = self.process_class.spec().outputs
         if self.declared_outputs.fields:
-            # A mapped failure leaves its success arms absent; like `Result` arms they travel
-            # as `None`, so the contract keeps them optional. Presence on the success path
-            # stays enforced by the runtime missing-output check, not by the port contract.
-            ports = _close_dynamic(ports, self.declared_outputs, OutputPort, narrow=True, required=not self.error_enums)
+            ports = _close_dynamic(ports, self.declared_outputs, OutputPort, narrow=True)
         if ports.dynamic or any(isinstance(port, PortNamespace) and port.dynamic for port in ports.values()):
             msg = (
                 'graph tasks require static outputs, not dynamic outputs; '
@@ -314,6 +309,8 @@ class TaskIR:
             raise GraphTypeCheckError(msg)
         if self.exit_codes and 'error' not in ports:
             ports = _with_error_arm(ports)
+        if self.error_enums:
+            ports = _optional_success_arms(ports)
         return ports
 
     def check_ports(self) -> None:
@@ -382,6 +379,24 @@ def _with_error_arm(ports: PortNamespace) -> PortNamespace:
         fresh[name] = child
     fresh['error'] = OutputPort('error', valid_type=EnumData, required=False)
     return fresh
+
+
+def _optional_success_arms(ports: PortNamespace) -> PortNamespace:
+    """Return a copy of ``ports`` with every success arm optional for mapped failures.
+
+    A mapped failure leaves its success arms absent; like `Result` arms they travel
+    as `None`. Presence on the success path stays enforced by the runtime
+    missing-output check for declared outputs, not by the port contract.
+    """
+    optional = PortNamespace(ports.name, help=ports.help, required=ports.required)
+    for name, child in ports.items():
+        if name == 'error' or not child.required:
+            optional[name] = child
+            continue
+        relaxed = copy(child)
+        relaxed.required = False
+        optional[name] = relaxed
+    return optional
 
 
 def _branch_condition(

@@ -441,13 +441,14 @@ class GraphRun:
             isinstance(task, ProcessTask)
             and node.is_failed
             and task.spec.error_enums
-            and task.spec.declared_outputs.fields
             and node.pk is not None
             and self._has_result(name, node.pk)
         ):
-            for field, _ in task.spec.declared_outputs.fields:
-                if field not in values:
-                    values[field] = None
+            # A mapped failure leaves its success arms absent; materialize the missing
+            # leaves as `None` so region namespaces fill and direct reads resolve.
+            for key, child in ports.items():
+                if key != 'error' and key not in values and not isinstance(child, PortNamespace):
+                    values[key] = None
         return _value_at(values, ports, path)
 
     def _produced_by(self, name: str) -> Node:

@@ -698,3 +698,33 @@ def test_workchain_absent_success_arm_reads_none(fail: bool, expected: str) -> N
     outputs, node = run_get_node(workchains.read_absent_arm, fail=fail)
     assert node.is_finished_ok
     assert outputs['result'].value == expected
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    'fail, expected',
+    [
+        pytest.param(True, 'recovered from 410', id='mapped-failure'),
+        pytest.param(False, 'result:1.0', id='success'),
+    ],
+)
+def test_workchain_static_failure_recovers_without_outputs(fail: bool, expected: str) -> None:
+    """A mapped failure with an absent static output still counts as completed."""
+    outputs, node = run_get_node(workchains.recover_static, fail=fail)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
+@pytest.mark.parametrize(
+    'fail, expected',
+    [
+        pytest.param(True, 'recovered from 410', id='mapped-failure'),
+        pytest.param(False, 'result:1.0', id='success'),
+    ],
+)
+def test_workchain_absent_static_arm_reads_none(fail: bool, expected: str) -> None:
+    """An unconditionally read static arm arrives as `None` after a mapped failure."""
+    outputs, node = run_get_node(workchains.read_absent_static, fail=fail)
+    assert node.is_finished_ok
+    assert outputs['result'].value == expected

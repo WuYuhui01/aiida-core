@@ -123,3 +123,41 @@ def read_absent_arm(fail: bool) -> str:
     """Read both arms unconditionally; the absent success arm arrives as `None`."""
     ran = flaky_chain(fail=fail)
     return ensure_result(value=ran.result, error=ran.error)
+
+
+class FlakyStaticChain(WorkChain):
+    """Fail with a mapped status or store one static result, leaving the other arm absent."""
+
+    @classmethod
+    def define(cls, spec) -> None:  # type: ignore[override]
+        super().define(spec)
+        spec.input('fail', valid_type=Bool)
+        spec.output('result', valid_type=Float)
+        spec.outline(cls.produce)
+
+    def produce(self):
+        """Exit mapped without outputs, or store the static result."""
+        if self.inputs.fail.value:
+            return ChainErrors.UNSTABLE.value
+        self.out('result', make_result())
+
+
+flaky_static_chain = task(FlakyStaticChain, errors=ChainErrors)
+
+
+@graph
+def recover_static(fail: bool) -> str:
+    """Recover from a mapped failure that leaves a static output absent."""
+    ran = flaky_static_chain(fail=fail)
+    if ran.error is not None:
+        selected = recover_chain(error=ran.error)
+    else:
+        selected = read_result(result=ran.result)
+    return selected
+
+
+@graph
+def read_absent_static(fail: bool) -> str:
+    """Read a static success arm unconditionally; absence arrives as `None`."""
+    ran = flaky_static_chain(fail=fail)
+    return ensure_result(value=ran.result, error=ran.error)
