@@ -277,6 +277,14 @@ def test_error_member_feeds_recovery_input() -> None:
 
 
 @pytest.mark.usefixtures('aiida_profile_clean')
+def test_error_member_carries_member_label() -> None:
+    """The stored error member is labeled with its dotted enum name."""
+    outputs, node = run_get_node(results.divide, numerator=1.0, denominator=0.0)
+    assert node.exit_status == 410
+    assert outputs['error'].label == 'DivisionErrors.ZERO_DENOMINATOR'
+
+
+@pytest.mark.usefixtures('aiida_profile_clean')
 def test_branch_children_carry_placement_labels() -> None:
     """Branch control children show their placement name instead of a bare class name."""
     _, node = run_get_node(results.matched_signed, numerator=1.0, denominator=0.0)

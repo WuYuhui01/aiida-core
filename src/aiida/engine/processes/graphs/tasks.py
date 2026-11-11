@@ -291,7 +291,9 @@ class TaskProcess(FunctionProcessBase):
             member = next(
                 member for kind in _error_types(annotation) for member in kind if member.value.status == error.status
             )
-            self.out('error', to_aiida_type(member))
+            stored = to_aiida_type(member)
+            stored.label = f'{type(member).__name__}.{member.name}'
+            self.out('error', stored)
             return error
         msg = f'task returned an undeclared exit code: {error!r}.'
         raise GraphValidationError(msg)
