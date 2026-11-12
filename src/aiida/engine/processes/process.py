@@ -55,6 +55,7 @@ from .process_spec import ProcessSpec
 from .utils import prune_mapping
 
 if TYPE_CHECKING:
+    from aiida.engine.reuse import ReuseConfiguration
     from aiida.engine.runners import Runner
 
 __all__ = ('Process', 'ProcessState')
@@ -224,6 +225,16 @@ class Process(PlumpyProcess):
         """
         assert self._node is not None
         return self._node
+
+    def get_reuse_configuration(self) -> ReuseConfiguration | None:
+        """Return the optional reuse configuration for this process.
+
+        Subclasses that support reuse decisions can override this extension point.
+        The configuration is evaluated after process inputs have been parsed but
+        before input links are stored. Returning ``None`` preserves native AiiDA
+        behavior.
+        """
+        return None
 
     @property
     def uuid(self) -> str:  # type: ignore[override]
@@ -652,6 +663,46 @@ class Process(PlumpyProcess):
         message = f'[{self.node.pk}|{self.__class__.__name__}|{inspect.stack()[1][3]}]: {msg}'
         self.logger.log(LOG_LEVEL_REPORT, message, *args, **kwargs)
 
+    @staticmethod
+    def _copy_input_mapping(value: Any) -> Any:
+        """Recursively copy mappings without copying AiiDA Data node values."""
+        if isinstance(value, Mapping):
+            return {key: Process._copy_input_mapping(item) for key, item in value.items()}
+        return value
+
+    def _apply_reuse_configuration(self) -> None:
+        """Decide reuse and apply the plugin's input rewrite before storing the process."""
+        from aiida.engine.reuse import ReuseDecisionError, make_reuse_decision
+
+        configuration = self.get_reuse_configuration()
+        if configuration is None:
+            return
+
+        original_metadata = self._parsed_inputs.get('metadata', {}) if self._parsed_inputs else {}
+        original_cache_disabled = bool(original_metadata.get('disable_cache', False))
+        decision = make_reuse_decision(configuration, self.node.uuid)
+        rewritten_inputs = configuration.input_rewriter(
+            self._copy_input_mapping(self.raw_inputs or {}),
+            decision,
+        )
+        if not isinstance(rewritten_inputs, Mapping):
+            raise TypeError('reuse input_rewriter must return a mapping')
+
+        serialized_inputs = self.spec().inputs.serialize(self._copy_input_mapping(rewritten_inputs))
+        parsed_inputs = self.spec().inputs.pre_process(self._copy_input_mapping(serialized_inputs))
+        result = self.spec().inputs.validate(parsed_inputs)
+        if result is not None:
+            raise ValueError(result)
+
+        rewritten_metadata = parsed_inputs.get('metadata', {}) if parsed_inputs else {}
+        if decision.uses_cache and (original_cache_disabled or rewritten_metadata.get('disable_cache', False)):
+            msg = 'reuse decisions cannot select a cache source when metadata.disable_cache is true'
+            raise ReuseDecisionError(msg)
+
+        self._raw_inputs = AttributesFrozendict(serialized_inputs)
+        self._parsed_inputs = parsed_inputs
+        self.node._ai4s_reuse_decision = decision
+
     def _create_and_setup_db_record(self) -> int | UUID:
         """Create and setup the database record for this process
 
@@ -659,10 +710,16 @@ class Process(PlumpyProcess):
 
         """
         self._node = self.get_or_create_db_record()
+        self._apply_reuse_configuration()
         self._setup_db_record()
         if self.metadata.store_provenance:
             try:
                 self.node.store_all()
+                decision = getattr(self.node, '_ai4s_reuse_decision', None)
+                if decision is not None:
+                    from aiida.engine.reuse import store_reuse_decision
+
+                    store_reuse_decision(self.node, decision.record)
                 if self.node.is_finished_ok:
                     self._state = Finished(self, None, True)
                     for entry in self.node.base.links.get_outgoing(link_type=LinkType.RETURN):

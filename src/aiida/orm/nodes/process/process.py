@@ -39,11 +39,34 @@ class ProcessNodeCaching(NodeCaching):
     # The link_type might not be correct while the object is being created.
     _hash_ignored_inputs = ['CALL_CALC', 'CALL_WORK']
 
+    def _get_reuse_decision(self) -> Any | None:
+        """Return the transient reuse decision attached by the process engine."""
+        return getattr(self._node, '_ai4s_reuse_decision', None)
+
+    def _is_cache_disabled_by_metadata(self) -> bool:
+        """Return whether the process metadata explicitly disables caching."""
+        metadata_inputs = self._node.get_metadata_inputs() or {}
+        return bool(metadata_inputs.get('metadata', {}).get('disable_cache', None))
+
     def should_use_cache(self) -> bool:
         """Return whether the cache should be considered when storing this node.
 
+        An explicit reuse decision selects a particular cache source and is not
+        subject to the global caching switch. Controlled reruns and new samples
+        must never fall back to AiiDA's automatic cache lookup.
+
         :returns: True if the cache should be considered, False otherwise.
         """
+        decision = self._get_reuse_decision()
+        if decision is not None:
+            from aiida.engine.reuse import ReuseAction
+
+            if decision.action is not ReuseAction.REUSE:
+                return False
+            if self._is_cache_disabled_by_metadata():
+                return False
+            return True
+
         metadata_inputs = self._node.get_metadata_inputs() or {}
         disable_cache = metadata_inputs.get('metadata', {}).get('disable_cache', None)
 
@@ -51,6 +74,57 @@ class ProcessNodeCaching(NodeCaching):
             return False
 
         return super().should_use_cache()
+
+    def _get_same_node(self) -> Node | None:
+        """Return only the process explicitly selected by a reuse decision.
+
+        A controlled reuse must never silently fall back to another node that
+        happens to match AiiDA's native cache hash.
+        """
+        decision = self._get_reuse_decision()
+        if decision is None:
+            return super()._get_same_node()
+
+        from aiida import orm
+        from aiida.engine.reuse import ReuseAction, ReuseDecisionError
+
+        if decision.action is not ReuseAction.REUSE:
+            return None
+
+        process_uuid = decision.selected_process_uuid
+        if process_uuid is None:
+            raise ReuseDecisionError('reuse decision does not identify a source process')
+
+        try:
+            candidate = orm.load_node(process_uuid)
+        except (exceptions.NotExistent, ValueError) as exception:
+            raise ReuseDecisionError(f'cannot load selected reuse process {process_uuid}') from exception
+
+        if not isinstance(candidate, orm.ProcessNode):
+            raise ReuseDecisionError(f'selected reuse source {process_uuid} is not a ProcessNode')
+        if candidate.uuid == self._node.uuid:
+            raise ReuseDecisionError('selected reuse source cannot be the process itself')
+        if not candidate.is_stored or not candidate.is_finished or not candidate.is_sealed:
+            raise ReuseDecisionError(
+                f'selected reuse source {process_uuid} is not a stored, finished and sealed process'
+            )
+        if not candidate.base.caching.is_valid_cache:
+            raise ReuseDecisionError(f'selected reuse source {process_uuid} is not a valid cache')
+        if candidate.node_type != self._node.node_type:
+            raise ReuseDecisionError(f'selected reuse source {process_uuid} has a different node type')
+        if candidate.process_type != self._node.process_type:
+            raise ReuseDecisionError(f'selected reuse source {process_uuid} has a different process type')
+        if candidate.base.links.get_outgoing(link_type=LinkType.RETURN).all():
+            raise ReuseDecisionError(f'selected reuse source {process_uuid} has RETURN links and cannot be cached')
+
+        current_hash = self._compute_hash(ignore_errors=False)
+        candidate_hash = candidate.base.caching.get_hash()
+        if current_hash is None or current_hash != candidate_hash:
+            raise ReuseDecisionError(
+                f'selected reuse source {process_uuid} does not match the rewritten process inputs'
+            )
+
+        return candidate
 
     @property
     def is_valid_cache(self) -> bool:

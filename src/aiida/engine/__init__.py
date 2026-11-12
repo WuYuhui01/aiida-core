@@ -17,10 +17,12 @@ from .exceptions import *
 from .launch import *
 from .persistence import *
 from .processes import *
+from .reuse import *
 from .runners import *
 from .utils import *
 
 __all__ = (
+    'DECISION_RECORDS_EXTRA_KEY',
     'PORT_NAMESPACE_SEPARATOR',
     'AiiDAPersister',
     'Awaitable',
@@ -50,6 +52,13 @@ __all__ = (
     'ProcessHandlerReport',
     'ProcessSpec',
     'ProcessState',
+    'ReuseAction',
+    'ReuseCandidate',
+    'ReuseConfiguration',
+    'ReuseDecision',
+    'ReuseDecisionError',
+    'ReusePolicy',
+    'ReuseReason',
     'Runner',
     'ToContext',
     'WithNonDb',
@@ -60,17 +69,22 @@ __all__ = (
     'await_processes',
     'calcfunction',
     'construct_awaitable',
+    'default_seed_factory',
     'get_daemon_client',
     'get_object_loader',
+    'get_reuse_decision_records',
     'if_',
     'interruptable_task',
     'is_process_function',
+    'make_reuse_decision',
     'process_handler',
     'return_',
     'run',
     'run_get_node',
     'run_get_pk',
+    'store_reuse_decision',
     'submit',
+    'validate_decision_record',
     'while_',
     'workfunction',
 )
