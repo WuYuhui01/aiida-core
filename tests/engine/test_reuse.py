@@ -213,7 +213,6 @@ class ControlledReuseProcess(Process):
         super().define(spec)
         spec.input('seed', valid_type=orm.Int)
         spec.output('result', valid_type=orm.Int)
-        spec.outline(cls.consume)
 
     def get_reuse_configuration(self):
         kwargs = {}
