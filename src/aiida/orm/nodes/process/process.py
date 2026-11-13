@@ -59,9 +59,12 @@ class ProcessNodeCaching(NodeCaching):
         """
         decision = self._get_reuse_decision()
         if decision is not None:
-            from aiida.engine.reuse import ReuseAction
+            from aiida.engine.reuse import ReuseAction, ReuseMaterialization
 
-            if decision.action is not ReuseAction.REUSE:
+            if (
+                decision.action is not ReuseAction.REUSE
+                or decision.materialization is not ReuseMaterialization.CACHE_PROCESS
+            ):
                 return False
             if self._is_cache_disabled_by_metadata():
                 return False
@@ -86,9 +89,12 @@ class ProcessNodeCaching(NodeCaching):
             return super()._get_same_node()
 
         from aiida import orm
-        from aiida.engine.reuse import ReuseAction, ReuseDecisionError
+        from aiida.engine.reuse import ReuseAction, ReuseDecisionError, ReuseMaterialization
 
-        if decision.action is not ReuseAction.REUSE:
+        if (
+            decision.action is not ReuseAction.REUSE
+            or decision.materialization is not ReuseMaterialization.CACHE_PROCESS
+        ):
             return None
 
         process_uuid = decision.selected_process_uuid

@@ -58,6 +58,13 @@ class ReuseAction(str, Enum):
     NEW_SAMPLE = 'new_sample'
 
 
+class ReuseMaterialization(str, Enum):
+    """How a reuse decision is materialized."""
+
+    CACHE_PROCESS = 'cache_process'
+    CONSUME_CANDIDATE = 'consume_candidate'
+
+
 class ReuseReason(str, Enum):
     """Reason codes defined by agreement 5."""
 
@@ -82,6 +89,7 @@ __all__ = (
     'ReuseConfiguration',
     'ReuseDecision',
     'ReuseDecisionError',
+    'ReuseMaterialization',
     'ReusePolicy',
     'ReuseReason',
     'default_candidate_source',
@@ -224,6 +232,7 @@ class ReuseConfiguration:
     decision_function: DecisionFunction | None = None
     seed_factory: SeedFactory = default_seed_factory
     resolve_candidate_source: CandidateSourceResolver = default_candidate_source
+    materialization: ReuseMaterialization | str = ReuseMaterialization.CACHE_PROCESS
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'request_id', _validate_request_id(self.request_id))
@@ -233,6 +242,12 @@ class ReuseConfiguration:
             allowed = ', '.join(policy.value for policy in ReusePolicy)
             raise ReuseDecisionError(f'reuse_policy must be one of: {allowed}') from exception
         object.__setattr__(self, 'reuse_policy', policy)
+        try:
+            materialization = ReuseMaterialization(self.materialization)
+        except (TypeError, ValueError) as exception:
+            allowed = ', '.join(item.value for item in ReuseMaterialization)
+            raise ReuseDecisionError(f'materialization must be one of: {allowed}') from exception
+        object.__setattr__(self, 'materialization', materialization)
         object.__setattr__(self, 'original_seed', _validate_seed(self.original_seed, 'original_seed'))
         if not callable(self.input_rewriter):
             raise ReuseDecisionError('input_rewriter must be callable')
@@ -254,6 +269,7 @@ class ReuseDecision:
     """Validated decision returned by the engine."""
 
     action: ReuseAction
+    materialization: ReuseMaterialization
     selected_candidate_uuid: str | None
     selected_process_uuid: str | None
     effective_seed: int
@@ -265,7 +281,7 @@ class ReuseDecision:
     @property
     def uses_cache(self) -> bool:
         """Return whether this decision requires the selected cache source."""
-        return self.action is ReuseAction.REUSE
+        return (self.action is ReuseAction.REUSE and self.materialization is ReuseMaterialization.CACHE_PROCESS)
 
 
 def _candidate_records(configuration: ReuseConfiguration) -> tuple[dict[str, Any], ...]:
@@ -509,6 +525,7 @@ def make_reuse_decision(
     validate_decision_record(record)
     return ReuseDecision(
         action=outcome['action'],
+        materialization=configuration.materialization,
         selected_candidate_uuid=outcome['selected_candidate_uuid'],
         selected_process_uuid=selected_process_uuid,
         effective_seed=outcome['effective_seed'],

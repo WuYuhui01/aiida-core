@@ -57,6 +57,7 @@ __all__ = (
     'ReuseConfiguration',
     'ReuseDecision',
     'ReuseDecisionError',
+    'ReuseMaterialization',
     'ReusePolicy',
     'ReuseReason',
     'Runner',

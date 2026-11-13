@@ -17,8 +17,10 @@ import pytest
 from aiida import orm
 from aiida.engine import (
     Process,
+    WorkChain,
     ReuseConfiguration,
     ReuseDecisionError,
+    ReuseMaterialization,
     ReusePolicy,
     ReuseReason,
     get_reuse_decision_records,
@@ -51,6 +53,7 @@ def _make_configuration(
     source_resolver=None,
     decision_function=None,
     seed_factory=None,
+    materialization=ReuseMaterialization.CACHE_PROCESS,
 ):
     kwargs = {}
     if source_resolver is not None:
@@ -65,6 +68,7 @@ def _make_configuration(
         original_seed=original_seed,
         input_rewriter=lambda inputs, decision: inputs,
         candidates=candidates,
+        materialization=materialization,
         **kwargs,
     )
 
@@ -86,6 +90,7 @@ def test_allow_reuse_selects_first_qualified_candidate():
     assert decision.selected_candidate_uuid == candidate_uuid
     assert decision.selected_process_uuid == source.uuid
     assert decision.effective_seed == 41
+    assert decision.uses_cache is True
     assert decision.record['final_decision']['action'] == 'reuse'
 
 
@@ -208,6 +213,7 @@ class ControlledReuseProcess(Process):
         super().define(spec)
         spec.input('seed', valid_type=orm.Int)
         spec.output('result', valid_type=orm.Int)
+        spec.outline(cls.consume)
 
     def get_reuse_configuration(self):
         kwargs = {}
@@ -234,6 +240,45 @@ class ControlledReuseProcess(Process):
         self.out('result', orm.Int(self.inputs.seed.value).store())
 
 
+class ControlledConsumeCandidateWorkChain(WorkChain):
+    """A WorkChainNode consumer that materializes a CalcJob result through an input rewrite."""
+
+    _node_class = orm.WorkChainNode
+    policy = ReusePolicy.FORCE_RERUN
+    candidates = ()
+    candidate_result = None
+
+    @classmethod
+    def define(cls, spec):
+        super().define(spec)
+        spec.input('seed', valid_type=orm.Int)
+        spec.input('candidate_result', valid_type=orm.Int, required=False)
+        spec.output('result', valid_type=orm.Int)
+        spec.outline(cls.consume)
+
+    def get_reuse_configuration(self):
+        return ReuseConfiguration(
+            request_id=_request_id(),
+            reuse_policy=self.policy,
+            original_seed=self.inputs.seed.value,
+            input_rewriter=self._rewrite_inputs,
+            candidates=self.candidates,
+            materialization=ReuseMaterialization.CONSUME_CANDIDATE,
+        )
+
+    @staticmethod
+    def _rewrite_inputs(inputs, decision):
+        rewritten = dict(inputs)
+        if decision.action.value == 'reuse':
+            rewritten['candidate_result'] = orm.load_node(decision.selected_candidate_uuid)
+        else:
+            rewritten.pop('candidate_result', None)
+        return rewritten
+
+    def consume(self):
+        self.out('result', self.inputs.candidate_result)
+
+
 class NativeCacheProcess(Process):
     """A cacheable process without a reuse configuration."""
 
@@ -251,6 +296,7 @@ class NativeCacheProcess(Process):
 
 def _register_process(entry_points):
     entry_points.add(ControlledReuseProcess, 'aiida.workflows:core.controlled-reuse')
+    entry_points.add(ControlledConsumeCandidateWorkChain, 'aiida.workflows:core.controlled-consume-candidate')
 
 
 def _configure_process(*, policy, candidates=(), decision_function=None, seed_factory=None):
@@ -283,6 +329,29 @@ def test_workchain_reuse_hits_only_selected_source(runner, entry_points):
 
     assert target.base.caching.get_cache_source() == source.uuid
     assert target.outputs.result.value == source_result.value
+    records = get_reuse_decision_records(target)
+    assert len(records) == 1
+    assert records[0]['reason']['reason_code'] == 'R01'
+    assert records[0]['final_decision']['action'] == 'reuse'
+
+
+def test_consume_candidate_does_not_use_native_process_cache(runner, entry_points):
+    """A reuse decision can consume a result without a native process cache hit."""
+    _register_process(entry_points)
+    source = _run_source(runner)
+    source_result = source.outputs.result
+
+    ControlledConsumeCandidateWorkChain.policy = ReusePolicy.ALLOW_REUSE
+    ControlledConsumeCandidateWorkChain.candidates = [_candidate(source_result.uuid)]
+    with enable_caching():
+        _, target = runner.run_get_node(
+            ControlledConsumeCandidateWorkChain,
+            seed=orm.Int(41),
+        )
+
+    assert isinstance(target, orm.WorkChainNode)
+    assert target.base.caching.get_cache_source() is None
+    assert target.outputs.result.uuid == source_result.uuid
     records = get_reuse_decision_records(target)
     assert len(records) == 1
     assert records[0]['reason']['reason_code'] == 'R01'
